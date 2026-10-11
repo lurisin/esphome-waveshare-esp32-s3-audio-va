@@ -17,9 +17,6 @@
 - **Ringing** switch: on while a timer or the alarm rings on the device.
   An HA automation can follow it to repeat a sound on another speaker until
   the ring is stopped, and turning it off from HA stops the ring.
-- **The wake beep is always heard**, even with the media player muted or at
-  zero volume (it then plays at the `volume_min` level). It still follows
-  *Wake sound* and *Night mode*.
 - **Alarm clock in Home Assistant.** The alarm engine was in the firmware but
   hidden, and could never be armed. One alarm is now set from HA with
   **Alarm** (on/off), **Alarm time** (a time picker), **Alarm days** (Every

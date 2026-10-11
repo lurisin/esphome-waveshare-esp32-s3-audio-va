@@ -452,13 +452,13 @@ media_player:
                 decibel_reduction: 0
                 duration: 1.0s
     # The player has just pushed its new volume/mute to the speaker. While a
-    # ring, the wake beep or a silenced reply owns the speaker, put that back
+    # ring or a silenced reply owns the speaker, put that back
     # at once: the general volume is kept and applies when they end, and the
     # ring only follows its own "Ring volume" slider.
     on_mute:
       - if: &keep_speaker_override
           condition:
-            lambda: return id(timer_ringing).state || id(wake_beep_playing) || id(reply_silenced);
+            lambda: return id(timer_ringing).state || id(reply_silenced);
           then:
             - script.execute: apply_speaker_output
       - delay: 100ms            # debounce
@@ -539,9 +539,10 @@ micro_wake_word:
                                     - switch.is_on: wake_sound
                                     - switch.is_off: night_mode   # the ring is enough at night
                                 then:
-                                  # Heard even when the player is muted or
-                                  # at zero (see wake_beep).
-                                  - script.execute: wake_beep
+                                  - script.execute:
+                                      id: play_sound
+                                      priority: true
+                                      sound_file: !lambda return id(wake_word_triggered_sound);
                                   - delay: 300ms
                             - voice_assistant.start:
                                 wake_word: !lambda return wake_word;
@@ -921,10 +922,6 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
-  - id: wake_beep_playing        # the wake beep is playing, heard even if muted
-    type: bool
-    restore_value: no
-    initial_value: 'false'
   # The current ring is silent here: an HA automation rings on another
   # speaker ("External speaker" action). Set by start_ring.
   - id: ring_silent
@@ -1189,16 +1186,15 @@ script:
   # What the speaker should do right now, in priority order:
   #   1. a timer or the alarm rings -> "Ring volume", unmuted (not for a
   #                                    silent ring, see start_ring)
-  #   2. the wake beep plays        -> the player's volume, unmuted (so the
-  #                                    beep is heard even with the player
-  #                                    muted or at zero, at volume_min)
-  #   3. a reply goes external      -> muted
-  #   4. otherwise                  -> the media player's own volume and mute
+  #   2. a reply goes external      -> muted
+  #   3. otherwise                  -> the media player's own volume and mute
+  # (The wake beep has no override: it follows the general volume and mute,
+  # so a device turned down to zero stays silent.)
   # Volumes are mapped into volume_min..volume_max like the media player's.
   # The speaker is driven directly, so the media player's volume and mute in
   # HA are left alone. Run whenever one of those states changes, and after
-  # every player volume/mute change while 1-3 hold (media_player on_volume),
-  # so the general volume never leaks into a ring, beep or silenced reply.
+  # every player volume/mute change while 1-2 hold (media_player on_volume),
+  # so the general volume never leaks into a ring or a silenced reply.
   - id: apply_speaker_output
     then:
       - lambda: |-
@@ -1210,39 +1206,12 @@ script:
           if (id(timer_ringing).state && !id(ring_silent)) {
             spk->set_volume(mapped(id(ring_volume).state / 100.0f));
             spk->set_mute_state(false);
-          } else if (id(wake_beep_playing)) {
-            spk->set_volume(mapped(mp->volume));
-            spk->set_mute_state(false);
           } else if (id(reply_silenced)) {
             spk->set_mute_state(true);
           } else {
             spk->set_volume(mapped(mp->volume));
             spk->set_mute_state(mp->is_muted());
           }
-
-  # The wake word beep, audible even when the player is muted or at zero. It
-  # still follows the "Wake sound" switch and Night mode (checked by the
-  # caller). Once the beep has played, the speaker goes back to normal.
-  - id: wake_beep
-    mode: restart
-    then:
-      - lambda: id(wake_beep_playing) = true;
-      - script.execute: apply_speaker_output
-      - script.execute:
-          id: play_sound
-          priority: true
-          sound_file: !lambda return id(wake_word_triggered_sound);
-      - wait_until:
-          condition:
-            media_player.is_announcing:
-          timeout: 1s
-      - wait_until:
-          condition:
-            not:
-              media_player.is_announcing:
-          timeout: 3s
-      - lambda: id(wake_beep_playing) = false;
-      - script.execute: apply_speaker_output
 
   # With "Replies on external speaker" on, silence the device for the reply
   # that is starting; on_end gives the speaker back once it has played.

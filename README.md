@@ -66,7 +66,7 @@ You  ──▶  Waveshare ESP32-S3  ──▶  Home Assistant Assist
   Play/Pause, from HA, or it gives up after 15 minutes.
 - **A bigger speaker**: Assist replies, timers and the alarm can play on any
   Home Assistant media player, with the device's own speaker silent for them.
-  The wake beep always plays on the device, even with its volume at zero.
+  The wake beep still plays on the device.
 - **Clock without HA**: the onboard PCF85063 RTC is set from HA on every time
   sync and read back at boot, so the clock is right before HA connects.
 - **Buttons**: the three onboard keys do volume down, play-pause, volume up.
@@ -98,7 +98,6 @@ On top of the original v1.2.0:
 | **Ring volume**, independent of the general volume | [Timers](#timers) |
 | **Ringing** switch: see and stop a ring from HA | [Timers](#timers) |
 | **Replies on external speaker**, **Timer action**, and an *External speaker* option for timers and the alarm | [Using an external speaker](#using-an-external-speaker) |
-| Wake beep always audible, even with the device muted | [Using an external speaker](#using-an-external-speaker) |
 | Onboard PCF85063 RTC as a backup clock | [docs/HARDWARE.md](docs/HARDWARE.md#rtc) |
 | Mute reminder flash every 10 s | [What it does](#what-it-does) |
 | Diagnostic entities and a fallback hotspot with captive portal | [Configuration](#configuration) |
@@ -224,7 +223,7 @@ What lives in `waveshare-va.yaml`:
 |---|---|---|
 | `name` / `friendly_name` | `waveshare-va` / `Waveshare Voice` | Device name. Changing `name` re-creates every entity in HA. |
 | `posix_timezone` | `CET-1CEST,...` | Clock zone in POSIX form (the device has no IANA database). DST automatic. |
-| `volume_min` / `volume_max` | `0.4` / `0.8` | Media player clamps, because the onboard amp distorts near the top. Ring volume and the wake beep use the same range. |
+| `volume_min` / `volume_max` | `0.4` / `0.8` | Media player clamps, because the onboard amp distorts near the top. Ring volume uses the same range. |
 | `hidden_ssid` | `false` | `true` enables `fast_connect` for a hidden SSID. |
 | `fallback_ap_password` | empty (open) | Password of the fallback hotspot, 8+ characters. Empty leaves it open. |
 | `boot_sound_file` | repo `startup.mp3` | The connect-to-HA chime. Any URL or local MP3/FLAC/WAV. |
@@ -338,9 +337,10 @@ each with its own automation:
 | replies outside, rings on the device | on | *Play sound* |
 | replies on the device, rings outside | off | *External speaker* |
 
-The **wake beep always plays on the device**, even with its volume at zero
-(it then plays at the `volume_min` level), so you always hear that it woke
-up. It still follows **Wake sound** and **Night mode**.
+The **wake beep stays on the device** in every case, so you hear right away
+that it woke up. It follows the general volume: with the device muted or
+turned down to zero it is silent too (and **Wake sound** / **Night mode**
+turn it off as before).
 
 The device sends these events to Home Assistant (each carries the device's
 `device_id`):
