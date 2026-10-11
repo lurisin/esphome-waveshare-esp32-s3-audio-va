@@ -47,19 +47,31 @@ You  ──▶  Waveshare ESP32-S3  ──▶  Home Assistant Assist
   colour/effect. Brightness and the animation for the listening / thinking /
   replying phases are pickable from HA: solid plus 14 animations - pulses,
   breathe, wipe, scan, spinner, comet, twinkle, fireworks, fire, rainbows.
-- **Timers**: set by voice, with an on-ring countdown and a "Next timer" sensor
-  in HA. A ringing timer or alarm is silenced by saying the wake word or by
+- **Timers**: set by voice, with a "Next timer" sensor in HA and a countdown
+  on the ring: the lit share of the ring drains as the timer runs out. A
+  ringing timer or alarm plays at its own **Ring volume** (even if the player
+  is muted or turned down) and is silenced by saying the wake word or by
   pressing Play/Pause. (A daily-alarm engine is present but its entities are
   hidden by default.)
+- **Clock without HA**: the onboard PCF85063 RTC is set from HA on every time
+  sync and read back at boot, so the clock is right before HA connects. It
+  keeps time across a power cut only with a backup cell on its header.
 - **Buttons**: the three onboard keys do volume down, play-pause, volume up.
   While a timer or alarm is ringing, Play/Pause silences it instead.
 - **Boot chime**: a short "ready" sound once the device connects to HA
   (toggleable, and it also settles the amp so the ring boots silent).
 - **Night mode**: one switch dims the ring to its own brightness and skips the
   wake beep and boot chime. Drive it from any Home Assistant automation.
+- **Microphone mute you can see**: while muted, the ring gives a short red
+  flash every 10 seconds, so a muted device doesn't look like an idle one.
 - **Tunable live from HA**: the wake word, microphone mute, ES7210 mic gain, LED
   brightness and wake-word sensitivity are all entities, so there's no
   reflashing to tune it.
+- **Diagnostics**: Wi-Fi signal, uptime, IP address, SSID, ESPHome version,
+  free heap and PSRAM.
+- **Fallback hotspot**: if the Wi-Fi can't be reached, the board opens its own
+  access point with a captive portal to enter new credentials, so a changed
+  Wi-Fi password doesn't mean a USB reflash.
 
 https://github.com/user-attachments/assets/3236cd4f-7184-4eee-a16a-0db6fe1603a3
 
@@ -147,7 +159,7 @@ skill/
 Everything worth changing day to day is a Home Assistant entity, not a config
 edit: mic gain, LED brightness, the ring animation per assistant phase
 (Listening / Thinking / Replying effect), the wake word and its sensitivity,
-night mode, wake sound, boot sound, microphone mute.
+night mode, wake sound, boot sound, microphone mute, ring volume.
 
 What lives in `waveshare-va.yaml`:
 
@@ -157,6 +169,7 @@ What lives in `waveshare-va.yaml`:
 | `posix_timezone` | `CET-1CEST,...` | Clock zone in POSIX form (the device has no IANA database). DST automatic. |
 | `volume_min` / `volume_max` | `0.4` / `0.8` | Media player clamps, because the onboard amp distorts near the top. |
 | `hidden_ssid` | `false` | `true` enables `fast_connect` for a hidden SSID. |
+| `fallback_ap_password` | empty (open) | Password of the fallback hotspot, 8+ characters. Empty leaves it open. |
 | `boot_sound_file` | repo `startup.mp3` | The connect-to-HA chime. Any URL or local MP3/FLAC/WAV. |
 
 Pins and the audio format are substitutions too (in `base/core.yaml`), but you

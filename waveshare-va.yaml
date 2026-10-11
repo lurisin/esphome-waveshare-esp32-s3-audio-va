@@ -33,6 +33,11 @@ substitutions:
   # Set to 'true' only if your SSID is hidden.
   hidden_ssid: 'false'
 
+  # If your Wi-Fi can't be reached, the board opens a fallback hotspot with a
+  # captive portal to enter new credentials. It is open unless you set a
+  # password here (8+ characters).
+  # fallback_ap_password: 'choose-a-password'
+
   # Boot chime played once on connect to Home Assistant. A sound ships with the
   # firmware; uncomment to use your own (any URL or local MP3/FLAC/WAV). The
   # board plays back at 16 kHz mono, so a small 16 kHz mono file is plenty.

@@ -158,9 +158,25 @@ software `noise_suppression_level` / `auto_gain` instead. The practical fallout:
 without AEC the mic hears the device's own speaker loudly, so barge-in features
 (a "stop" wake word during a reply) don't work here.
 
+## RTC
+
+**PCF85063ATL** @ **0x51** on the shared I2C bus, with a 32.768 kHz crystal and
+a backup battery header. The firmware uses it as a backup clock
+(`platform: pcf85063`, id `rtc_chip`): it is read once at boot and written on
+every Home Assistant time sync. It is not polled, so it never steps the
+HA-synced clock back to its own drifted time. The driver keeps time in UTC.
+
+Without a cell on the header the RTC only survives a reset, not a power cut;
+after one its oscillator-stop flag is set and the driver logs
+`RTC halted, not syncing to system clock` until HA writes it again.
+
+The `RTC_INT` net exists but **where it terminates is unconfirmed**; the
+firmware doesn't use the alarm/interrupt output. An `rtc_int: 5` seen in a
+community config collides with CAM_PWDN and is unused there.
+
 ## Not used by this firmware
 
-Kept for reference. This build is speaker + mics + ring + buttons only.
+Kept for reference. This build is speaker + mics + ring + buttons + RTC only.
 
 - **BOOT button**: GPIO0, active low. **RESET**: hardware `CHIP_PU`, not readable.
 - **SD (1-bit SDMMC)**: CLK GPIO40, CMD GPIO42, D0 GPIO41, CS EXIO3. D1/D2 = NC.
@@ -172,9 +188,6 @@ Kept for reference. This build is speaker + mics + ring + buttons only.
   D4 GPIO45, D5 GPIO46, D6 GPIO47, D7 GPIO48, VSYNC GPIO21, HREF GPIO1,
   PCLK/XCLK muxed GPIO44/43 or GPIO19/20, PWDN EXIO5.
 - **USB**: D- GPIO19, D+ GPIO20. **UART0**: TX GPIO43, RX GPIO44.
-- **RTC PCF85063ATL** @ 0x51 + 32.768 kHz crystal + backup battery header.
-  The `RTC_INT` net exists but **where it terminates is unconfirmed**.
-  an `rtc_int: 5` seen in a community config collides with CAM_PWDN and is unused there.
 
 ### ⚠️ Battery ADC: conflicting sources, don't trust GPIO8
 

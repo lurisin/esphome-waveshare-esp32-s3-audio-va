@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Timer countdown on the ring.** While a timer runs, the lit share of the
+  ring is the share of the timer still to go, and it drains smoothly as the
+  timer runs out (it replaces the slow purple pulse). *Timer countdown on
+  ring* still turns it off.
+- **Ring volume** (config, 10-100 %, default 80 %). A ringing timer or alarm
+  plays at this volume, even if the media player is muted or turned down,
+  and the player's own volume and mute come back when it stops. Moving the
+  slider while it rings is heard at once.
+- **Mute reminder.** While the microphone is muted the ring gives a short red
+  flash every 10 seconds (skipped while a timer rings or during a voice
+  interaction), so a muted device no longer looks idle.
+- **Onboard RTC as a backup clock.** The PCF85063 is read at boot and written
+  on every Home Assistant time sync, so the clock (and the alarm) is right
+  before HA connects. Keeping time through a power cut needs a backup cell on
+  the RTC header.
+- **Diagnostic entities**: WiFi Signal, Uptime, IP Address, Connected SSID,
+  ESPHome Version, Free Heap, Free PSRAM.
+- **Fallback hotspot with captive portal.** If the Wi-Fi can't be reached for
+  90 s, the board opens its own access point to enter new credentials. It is
+  open unless you set the new `fallback_ap_password` substitution.
+
+### Changed
+- The mute flash uses the ring's day or night brightness instead of full
+  brightness, so it no longer lights up a dark room at night.
+
+### Fixed
+- **Cancelling a timer left the ring pulsing and "Next timer" showing it.**
+  The cancelled timer was still counted as active while its event ran.
+- **"Next timer" picked the wrong timer** when a paused timer was first in
+  the list, and went to "none" when one timer finished while others were
+  still running.
+- **A ring stopped early.** The 15-minute give-up delay of one ring was not
+  cancelled when it was silenced, so it could cut a later ring short.
+
 ## [1.2.0] - 2026-10-07
 
 **Switch your config to `ref: main`.** The example config now uses
