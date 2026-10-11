@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- **Replies on an external speaker.** A new **Replies on external speaker**
+  switch keeps the device's own speaker silent during Assist replies (and
+  announcements sent to it), for an HA automation to play them on any media
+  player from the `esphome.tts_uri` event. See the README.
+- **Timer action** select (*Play sound* / *Send event* / *Sound and event*),
+  like the alarm's: *Send event* fires `esphome.timer_finished` with the
+  timer's `name`, e.g. to ring on another speaker.
+- **The wake beep is always heard**, even with the media player muted or at
+  zero volume (it then plays at the `volume_min` level). It still follows
+  *Wake sound* and *Night mode*.
 - **Alarm clock in Home Assistant.** The alarm engine was in the firmware but
   hidden, and could never be armed. One alarm is now set from HA with
   **Alarm** (on/off), **Alarm time** (a time picker), **Alarm days** (Every
@@ -34,6 +44,9 @@
   open unless you set the new `fallback_ap_password` substitution.
 
 ### Changed
+- **`esphome.tts_uri` goes out earlier for streamed replies**: at the start
+  of the audio instead of when the whole reply is ready, and still once per
+  reply.
 - The mute flash uses the ring's day or night brightness instead of full
   brightness, so it no longer lights up a dark room at night.
 

@@ -51,7 +51,12 @@ You  ──▶  Waveshare ESP32-S3  ──▶  Home Assistant Assist
   on the ring: the lit share of the ring drains as the timer runs out. A
   ringing timer or alarm plays at its own **Ring volume** (even if the player
   is muted or turned down) and is silenced by saying the wake word or by
-  pressing Play/Pause.
+  pressing Play/Pause. **Timer action** can send an `esphome.timer_finished`
+  event instead of (or as well as) ringing here.
+- **Replies on a bigger speaker**: Assist replies can play on any Home
+  Assistant media player, with the device's own speaker silent for them. See
+  [Replies on an external speaker](#replies-on-an-external-speaker). The wake
+  beep always plays on the device, even with its volume at zero.
 - **Alarm clock**: one alarm, set from HA with an **Alarm** switch, an **Alarm
   time** picker and **Alarm days** (every day, weekdays, weekends, or once).
   It runs on the device, so it rings even when HA or the Wi-Fi is down. It
@@ -244,6 +249,68 @@ automation:
         target:
           entity_id: cover.bedroom
 ```
+
+### Replies on an external speaker
+
+The onboard speaker is small. Assist replies can play on any Home Assistant
+media player instead (a Music Assistant player, a tablet with Browser Mod, a
+Bluetooth speaker exposed to HA, ...):
+
+1. Turn on **Replies on external speaker**. The device's own speaker then
+   stays silent during replies (and during announcements HA sends to it).
+   The wake beep, timers and the alarm still sound on the device.
+2. Add an automation that plays each reply on your speaker. The device sends
+   the reply's audio URL as the `esphome.tts_uri` event; for a long, streamed
+   LLM reply it goes out as soon as the audio starts, not when it is complete.
+
+```yaml
+automation:
+  - alias: Assist replies on the living room speaker
+    mode: restart
+    triggers:
+      - trigger: event
+        event_type: esphome.tts_uri
+        event_data:
+          device_id: YOUR_DEVICE_ID      # from the event, in Developer tools > Events
+    conditions:
+      - condition: state
+        entity_id: switch.waveshare_voice_replies_on_external_speaker   # yours may differ
+        state: "on"
+    actions:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.living_room
+        data:
+          media_content_id: "{{ trigger.event.data.uri }}"
+          media_content_type: music
+```
+
+The URL serves FLAC, which browsers and Music Assistant play fine. With the
+switch on and no automation, replies are simply not heard.
+
+**Timers** work the same way: set **Timer action** to *Send event* (or *Sound
+and event* to keep the local ring too), and a finished timer fires
+`esphome.timer_finished` with its `name`:
+
+```yaml
+automation:
+  - alias: Finished timers on the living room speaker
+    triggers:
+      - trigger: event
+        event_type: esphome.timer_finished
+    actions:
+      - action: tts.speak
+        target:
+          entity_id: tts.piper                          # your TTS engine
+        data:
+          media_player_entity_id: media_player.living_room
+          message: >-
+            {{ 'Timer ' ~ trigger.event.data.name ~ ' finished'
+               if trigger.event.data.name else 'Timer finished' }}
+```
+
+The alarm already has the same choice in **Alarm action**
+(`esphome.alarm_ringing`).
 
 ### Custom wake word models
 

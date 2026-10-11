@@ -528,10 +528,9 @@ micro_wake_word:
                                     - switch.is_on: wake_sound
                                     - switch.is_off: night_mode   # the ring is enough at night
                                 then:
-                                  - script.execute:
-                                      id: play_sound
-                                      priority: true
-                                      sound_file: !lambda return id(wake_word_triggered_sound);
+                                  # Heard even when the player is muted or
+                                  # at zero (see wake_beep).
+                                  - script.execute: wake_beep
                                   - delay: 300ms
                             - voice_assistant.start:
                                 wake_word: !lambda return wake_word;
@@ -581,7 +580,11 @@ voice_assistant:
               sound_file: !lambda return id(boot_sound_custom);
   on_client_disconnected:
     - voice_assistant.stop:
-    - lambda: id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
+    - lambda: |-
+        id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
+        id(reply_silenced) = false;
+        id(reply_streamed) = false;
+    - script.execute: apply_speaker_output
     - script.execute: control_leds
   on_error:
     # duplicate_wake_up_detected and stt-no-text-recognized are normal; showing
@@ -604,6 +607,7 @@ voice_assistant:
               priority: true
               sound_file: !lambda return id(error_cloud_expired);
   on_start:
+    - lambda: id(reply_streamed) = false;
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
         decibel_reduction: 30    # duck music hard while listening
@@ -617,6 +621,12 @@ voice_assistant:
   on_stt_vad_end:
     - lambda: id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
     - script.execute: control_leds
+  # Replies on an external speaker: the reply's audio URL goes to HA as the
+  # esphome.tts_uri event (for an automation to play elsewhere), and while
+  # "Replies on external speaker" is on the device's own speaker is silenced
+  # for the reply. A streamed reply (long LLM answers) starts playing at
+  # intent progress, before tts_start, so both are hooked; the event then
+  # goes out at once instead of when the whole reply is ready.
   on_intent_progress:
     - if:
         condition:
@@ -624,8 +634,16 @@ voice_assistant:
           lambda: 'return !x.empty();'
         then:
           - lambda: id(voice_assistant_phase) = ${voice_assist_replying_phase_id};
+          - script.execute: silence_reply_if_external
+          - lambda: id(reply_streamed) = true;
+          - script.execute:
+              id: send_tts_uri_event
+              tts_uri: !lambda 'return x;'
           - script.execute: control_leds
+  # Also fires for announcements HA sends to this device, so with the switch
+  # on they move to the external speaker too.
   on_tts_start:
+    - script.execute: silence_reply_if_external
     - if:
         condition:
           lambda: 'return id(voice_assistant_phase) != ${voice_assist_replying_phase_id};'
@@ -633,9 +651,16 @@ voice_assistant:
           - lambda: id(voice_assistant_phase) = ${voice_assist_replying_phase_id};
           - script.execute: control_leds
   on_tts_end:
-    - script.execute:
-        id: send_tts_uri_event
-        tts_uri: !lambda 'return x;'
+    # A streamed reply already sent its URL at intent progress.
+    - if:
+        condition:
+          lambda: return id(reply_streamed);
+        then:
+          - lambda: id(reply_streamed) = false;
+        else:
+          - script.execute:
+              id: send_tts_uri_event
+              tts_uri: !lambda 'return x;'
   on_stt_end:
     - script.execute:
         id: send_stt_text_event
@@ -644,6 +669,11 @@ voice_assistant:
     - wait_until:
         not:
           voice_assistant.is_running:
+    # The reply has finished playing: give the speaker back.
+    - lambda: |-
+        id(reply_silenced) = false;
+        id(reply_streamed) = false;
+    - script.execute: apply_speaker_output
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
         decibel_reduction: 0
@@ -659,7 +689,21 @@ voice_assistant:
   # runs (the component erases it afterwards), so it is excluded by id here.
   on_timer_finished:
     - lambda: id(update_timers).execute(timer.id, true);
-    - switch.turn_on: timer_ringing
+    # "Timer action": ring here, tell HA (esphome.timer_finished, e.g. to ring
+    # on another speaker), or both.
+    - if:
+        condition:
+          lambda: return id(timer_action).current_option() != "Send event";
+        then:
+          - switch.turn_on: timer_ringing
+    - if:
+        condition:
+          lambda: return id(timer_action).current_option() != "Play sound";
+        then:
+          - homeassistant.event:
+              event: esphome.timer_finished
+              data:
+                name: !lambda return timer.name;
   on_timer_started:
     - lambda: id(update_timers).execute("", true);
     - script.execute: control_leds
@@ -862,6 +906,20 @@ globals:
   - id: is_timer_active
     type: bool
     restore_value: no
+  # Speaker output overrides, applied by apply_speaker_output.
+  - id: reply_silenced           # a reply is going to the external speaker
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: wake_beep_playing        # the wake beep is playing, heard even if muted
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The current reply was streamed and its URL already sent at intent progress.
+  - id: reply_streamed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 script:
   # Push the wake word cutoffs for the current "Wake word sensitivity" option.
@@ -1112,25 +1170,72 @@ script:
             id(external_media_player)->play_file(sound_file, true, false);
           }
 
-  # Ring volume. While a timer or the alarm rings, the speaker plays at
-  # "Ring volume" (mapped into volume_min..volume_max like the media player's
-  # own volume) and a muted player is unmuted, so a ring is never silent. The
-  # speaker is driven directly, so the media player's volume and mute in HA
-  # are left alone, and restore_volume re-applies them when the ring stops.
-  # Changing the volume from HA or the keys while ringing still takes over.
-  - id: apply_ring_volume
-    then:
-      - lambda: |-
-          const float v = id(ring_volume).state / 100.0f;
-          id(announcement_resampling_speaker)->set_volume(${volume_min} + v * (${volume_max} - ${volume_min}));
-          id(announcement_resampling_speaker)->set_mute_state(false);
-
-  - id: restore_volume
+  # What the speaker should do right now, in priority order:
+  #   1. a timer or the alarm rings -> "Ring volume", unmuted
+  #   2. the wake beep plays        -> the player's volume, unmuted (so the
+  #                                    beep is heard even with the player
+  #                                    muted or at zero, at volume_min)
+  #   3. a reply goes external      -> muted
+  #   4. otherwise                  -> the media player's own volume and mute
+  # Volumes are mapped into volume_min..volume_max like the media player's.
+  # The speaker is driven directly, so the media player's volume and mute in
+  # HA are left alone. Run whenever one of those states changes. Changing the
+  # volume from HA or the keys meanwhile still takes over until the next run.
+  - id: apply_speaker_output
     then:
       - lambda: |-
           auto *mp = id(external_media_player);
-          id(announcement_resampling_speaker)->set_volume(${volume_min} + mp->volume * (${volume_max} - ${volume_min}));
-          id(announcement_resampling_speaker)->set_mute_state(mp->is_muted());
+          auto *spk = id(announcement_resampling_speaker);
+          auto mapped = [](float v) -> float {
+            return ${volume_min} + v * (${volume_max} - ${volume_min});
+          };
+          if (id(timer_ringing).state) {
+            spk->set_volume(mapped(id(ring_volume).state / 100.0f));
+            spk->set_mute_state(false);
+          } else if (id(wake_beep_playing)) {
+            spk->set_volume(mapped(mp->volume));
+            spk->set_mute_state(false);
+          } else if (id(reply_silenced)) {
+            spk->set_mute_state(true);
+          } else {
+            spk->set_volume(mapped(mp->volume));
+            spk->set_mute_state(mp->is_muted());
+          }
+
+  # The wake word beep, audible even when the player is muted or at zero. It
+  # still follows the "Wake sound" switch and Night mode (checked by the
+  # caller). Once the beep has played, the speaker goes back to normal.
+  - id: wake_beep
+    mode: restart
+    then:
+      - lambda: id(wake_beep_playing) = true;
+      - script.execute: apply_speaker_output
+      - script.execute:
+          id: play_sound
+          priority: true
+          sound_file: !lambda return id(wake_word_triggered_sound);
+      - wait_until:
+          condition:
+            media_player.is_announcing:
+          timeout: 1s
+      - wait_until:
+          condition:
+            not:
+              media_player.is_announcing:
+          timeout: 3s
+      - lambda: id(wake_beep_playing) = false;
+      - script.execute: apply_speaker_output
+
+  # With "Replies on external speaker" on, silence the device for the reply
+  # that is starting; on_end gives the speaker back once it has played.
+  - id: silence_reply_if_external
+    then:
+      - if:
+          condition:
+            switch.is_on: external_replies
+          then:
+            - lambda: id(reply_silenced) = true;
+            - script.execute: apply_speaker_output
 
   # Give up on a ring nobody stops. A script (not a delay in the switch's own
   # trigger) so that stopping the ring cancels the countdown, and a later
@@ -1337,6 +1442,21 @@ select:
       - "Weekends"
       - "Once"
     initial_option: "Every day"
+  # What a finished voice timer does: ring on the device, fire the
+  # esphome.timer_finished event in HA (data: name) so an automation can ring
+  # on another speaker, or both.
+  - platform: template
+    id: timer_action
+    name: "Timer action"
+    icon: mdi:timer-alert
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    options:
+      - "Play sound"
+      - "Send event"
+      - "Sound and event"
+    initial_option: "Play sound"
   # What the alarm does: ring on the device, fire the esphome.alarm_ringing
   # event in HA (for automations: lights, blinds, ...), or both.
   - platform: template
@@ -1465,6 +1585,18 @@ switch:
     on_turn_on: *repaint_if_ready
     on_turn_off: *repaint_if_ready
 
+  # Replies on another speaker. On: the device's own speaker stays silent
+  # during Assist replies (and announcements HA sends here), while an HA
+  # automation on the esphome.tts_uri event plays them on any media player.
+  # The wake beep, timers and the alarm still sound here. See the README.
+  - platform: template
+    id: external_replies
+    name: Replies on external speaker
+    icon: "mdi:speaker-wireless"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
   - platform: template
     id: timer_ringing
     optimistic: true
@@ -1475,7 +1607,7 @@ switch:
           id: media_mixing_input
           decibel_reduction: 20
           duration: 0.0s
-      - script.execute: apply_ring_volume
+      - script.execute: apply_speaker_output
       - script.execute: ring_timer
       - script.execute: control_leds
       - script.execute: ring_timeout   # gives up after 15 min
@@ -1488,7 +1620,7 @@ switch:
           then:
             media_player.stop:
               announcement: true
-      - script.execute: restore_volume
+      - script.execute: apply_speaker_output
       - mixer_speaker.apply_ducking:
           id: media_mixing_input
           decibel_reduction: 0
@@ -1597,7 +1729,7 @@ number:
 
   # Volume of a ringing timer or alarm, on the same 0-100 % scale as the media
   # player (so it is also held inside volume_min..volume_max). Applied by
-  # apply_ring_volume for as long as the ring lasts, even if the player is
+  # apply_speaker_output for as long as the ring lasts, even if the player is
   # muted or turned down.
   - platform: template
     id: ring_volume
@@ -1618,7 +1750,7 @@ number:
           condition:
             switch.is_on: timer_ringing
           then:
-            - script.execute: apply_ring_volume
+            - script.execute: apply_speaker_output
 
 sensor:
   - platform: template
