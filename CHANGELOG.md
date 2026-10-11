@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- **Alarm clock in Home Assistant.** The alarm engine was in the firmware but
+  hidden, and could never be armed. One alarm is now set from HA with
+  **Alarm** (on/off), **Alarm time** (a time picker), **Alarm days** (Every
+  day / Weekdays / Weekends / Once; *Once* turns the alarm off after it rings)
+  and **Alarm action** (sound, `esphome.alarm_ringing` event, or both). It
+  runs on the device, so it rings with HA or the Wi-Fi down, at Ring volume,
+  and stops with the wake word, Play/Pause or after 15 minutes. The
+  `set_alarm_time` action still works and now sets **Alarm time**, rejecting
+  invalid times like `25:99`.
 - **Timer countdown on the ring.** While a timer runs, the lit share of the
   ring is the share of the timer still to go, and it drains smoothly as the
   timer runs out (it replaces the slow purple pulse). *Timer countdown on

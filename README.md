@@ -51,8 +51,12 @@ You  ──▶  Waveshare ESP32-S3  ──▶  Home Assistant Assist
   on the ring: the lit share of the ring drains as the timer runs out. A
   ringing timer or alarm plays at its own **Ring volume** (even if the player
   is muted or turned down) and is silenced by saying the wake word or by
-  pressing Play/Pause. (A daily-alarm engine is present but its entities are
-  hidden by default.)
+  pressing Play/Pause.
+- **Alarm clock**: one alarm, set from HA with an **Alarm** switch, an **Alarm
+  time** picker and **Alarm days** (every day, weekdays, weekends, or once).
+  It runs on the device, so it rings even when HA or the Wi-Fi is down. It
+  can also (or instead) fire an `esphome.alarm_ringing` event for HA
+  automations. See [Alarm clock](#alarm-clock).
 - **Clock without HA**: the onboard PCF85063 RTC is set from HA on every time
   sync and read back at boot, so the clock is right before HA connects. It
   keeps time across a power cut only with a backup cell on its header.
@@ -159,7 +163,7 @@ skill/
 Everything worth changing day to day is a Home Assistant entity, not a config
 edit: mic gain, LED brightness, the ring animation per assistant phase
 (Listening / Thinking / Replying effect), the wake word and its sensitivity,
-night mode, wake sound, boot sound, microphone mute, ring volume.
+night mode, wake sound, boot sound, microphone mute, ring volume, the alarm clock.
 
 What lives in `waveshare-va.yaml`:
 
@@ -190,8 +194,9 @@ the same word cancel each other out (the second one beeps and does nothing).
 ### Night mode
 
 The **Night mode** switch dims the ring to **Night LED Ring Brightness** and
-skips the wake beep and the boot chime. Replies, timers and the alarm still
-play at the normal volume. It is a plain switch, so any automation can drive it:
+skips the wake beep and the boot chime. Replies still play at the normal
+volume, timers and the alarm at **Ring volume**. It is a plain switch, so any
+automation can drive it:
 
 ```yaml
 automation:
@@ -207,6 +212,37 @@ automation:
       - action: switch.turn_{{ trigger.id }}
         target:
           entity_id: switch.waveshare_va_night_mode
+```
+
+### Alarm clock
+
+One alarm, set from the device page in Home Assistant:
+
+| Entity | What it does |
+|---|---|
+| **Alarm** | Arms or disarms it. |
+| **Alarm time** | The time, local to the device's time zone, 24 h. |
+| **Alarm days** | *Every day*, *Weekdays* (Mon-Fri), *Weekends* (Sat-Sun), or *Once*: rings at the next occurrence of the time, then turns **Alarm** off. |
+| **Alarm action** | *Play sound* on the device, *Send event* to HA, or *Sound and event*. |
+
+The device checks its own clock every minute, so the alarm rings even when
+Home Assistant or the Wi-Fi is down (the onboard RTC keeps the clock through
+a reboot, and through a power cut with a backup cell). It rings like a timer:
+at **Ring volume**, with the ring pulsing purple, until you say the wake word,
+press Play/Pause, or 15 minutes pass. There is no snooze.
+
+*Send event* fires `esphome.alarm_ringing`, for example to open the blinds:
+
+```yaml
+automation:
+  - alias: Open the blinds with the alarm
+    triggers:
+      - trigger: event
+        event_type: esphome.alarm_ringing
+    actions:
+      - action: cover.open_cover
+        target:
+          entity_id: cover.bedroom
 ```
 
 ### Custom wake word models
