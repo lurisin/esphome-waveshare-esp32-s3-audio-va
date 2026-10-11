@@ -1597,10 +1597,15 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
 
+  # On while a timer or the alarm rings here. Exposed so HA can see it (e.g.
+  # to repeat a sound on another speaker for as long as it is on) and stop it
+  # (turn it off). Turning it on from HA rings by hand, handy to try the Ring
+  # volume. Off at boot: a ring never survives a reboot.
   - platform: template
     id: timer_ringing
+    name: "Ringing"
+    icon: "mdi:bell-ring"
     optimistic: true
-    internal: true
     restore_mode: ALWAYS_OFF
     on_turn_on:
       - mixer_speaker.apply_ducking:

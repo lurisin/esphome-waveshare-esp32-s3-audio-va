@@ -312,6 +312,36 @@ automation:
 The alarm already has the same choice in **Alarm action**
 (`esphome.alarm_ringing`).
 
+That event fires once. To keep a timer or the alarm **repeating on the
+external speaker until you stop it**, leave the action on *Play sound* (or
+*Sound and event*) and follow the **Ringing** switch: it is on for as long as
+the device rings, and goes off when you stop it (wake word, Play/Pause, or
+after 15 minutes). Turning it off from HA stops the ring too.
+
+```yaml
+automation:
+  - alias: Repeat the ring on the living room speaker
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: switch.waveshare_voice_ringing         # yours may differ
+        to: "on"
+    actions:
+      - repeat:
+          while:
+            - condition: state
+              entity_id: switch.waveshare_voice_ringing
+              state: "on"
+          sequence:
+            - action: tts.speak
+              target:
+                entity_id: tts.piper
+              data:
+                media_player_entity_id: media_player.living_room
+                message: Timer finished
+            - delay: 5
+```
+
 ### Custom wake word models
 
 Any of the four slots can be replaced with any microWakeWord v2 model by
