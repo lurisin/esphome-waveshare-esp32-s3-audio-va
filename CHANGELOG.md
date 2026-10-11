@@ -31,8 +31,10 @@
   ring* still turns it off.
 - **Ring volume** (config, 10-100 %, default 80 %). A ringing timer or alarm
   plays at this volume, even if the media player is muted or turned down,
-  and the player's own volume and mute come back when it stops. Moving the
-  slider while it rings is heard at once.
+  and the player's own volume and mute come back when it stops. The two are
+  independent: moving this slider while it rings is heard at once, while
+  changing the general volume (HA, keys, Music Assistant) during a ring only
+  takes effect once the ring stops.
 - **Mute reminder.** While the microphone is muted the ring gives a short red
   flash every 10 seconds (skipped while a timer rings or during a voice
   interaction), so a muted device no longer looks idle.

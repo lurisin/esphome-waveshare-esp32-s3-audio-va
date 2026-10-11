@@ -451,19 +451,30 @@ media_player:
                 id: media_mixing_input
                 decibel_reduction: 0
                 duration: 1.0s
+    # The player has just pushed its new volume/mute to the speaker. While a
+    # ring, the wake beep or a silenced reply owns the speaker, put that back
+    # at once: the general volume is kept and applies when they end, and the
+    # ring only follows its own "Ring volume" slider.
     on_mute:
+      - if: &keep_speaker_override
+          condition:
+            lambda: return id(timer_ringing).state || id(wake_beep_playing) || id(reply_silenced);
+          then:
+            - script.execute: apply_speaker_output
       - delay: 100ms            # debounce
       - script.execute: control_leds_volume_changed
     on_unmute:
+      - if: *keep_speaker_override
       - delay: 100ms
       - script.execute: control_leds_volume_changed
     on_volume:
-      if:
-        condition:
-          - lambda: return !id(init_in_progress);
-        then:
-          - delay: 100ms
-          - script.execute: control_leds_volume_changed
+      - if: *keep_speaker_override
+      - if:
+          condition:
+            - lambda: return !id(init_in_progress);
+          then:
+            - delay: 100ms
+            - script.execute: control_leds_volume_changed
     files:
       - id: timer_finished_sound
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/timer_finished.flac
@@ -1179,8 +1190,9 @@ script:
   #   4. otherwise                  -> the media player's own volume and mute
   # Volumes are mapped into volume_min..volume_max like the media player's.
   # The speaker is driven directly, so the media player's volume and mute in
-  # HA are left alone. Run whenever one of those states changes. Changing the
-  # volume from HA or the keys meanwhile still takes over until the next run.
+  # HA are left alone. Run whenever one of those states changes, and after
+  # every player volume/mute change while 1-3 hold (media_player on_volume),
+  # so the general volume never leaks into a ring, beep or silenced reply.
   - id: apply_speaker_output
     then:
       - lambda: |-

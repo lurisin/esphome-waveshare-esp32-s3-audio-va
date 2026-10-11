@@ -49,8 +49,9 @@ You  ──▶  Waveshare ESP32-S3  ──▶  Home Assistant Assist
   breathe, wipe, scan, spinner, comet, twinkle, fireworks, fire, rainbows.
 - **Timers**: set by voice, with a "Next timer" sensor in HA and a countdown
   on the ring: the lit share of the ring drains as the timer runs out. A
-  ringing timer or alarm plays at its own **Ring volume** (even if the player
-  is muted or turned down) and is silenced by saying the wake word or by
+  ringing timer or alarm plays at its own **Ring volume**, separate from the
+  general volume (it rings even if the player is muted or turned down, and
+  changing the general volume meanwhile doesn't touch it), and is silenced by saying the wake word or by
   pressing Play/Pause. **Timer action** can send an `esphome.timer_finished`
   event instead of (or as well as) ringing here.
 - **Replies on a bigger speaker**: Assist replies can play on any Home
