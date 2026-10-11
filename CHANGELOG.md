@@ -10,6 +10,10 @@
 - **Timer action** select (*Play sound* / *Send event* / *Sound and event*),
   like the alarm's: *Send event* fires `esphome.timer_finished` with the
   timer's `name`, e.g. to ring on another speaker.
+- **"External speaker" option** in *Timer action* and *Alarm action*: the
+  device rings silently (Ringing on, purple ring, stopped by the wake word,
+  Play/Pause or HA) and fires the event, so an HA automation can repeat the
+  ring on another speaker until it is stopped.
 - **Ringing** switch: on while a timer or the alarm rings on the device.
   An HA automation can follow it to repeat a sound on another speaker until
   the ring is stopped, and turning it off from HA stops the ring.

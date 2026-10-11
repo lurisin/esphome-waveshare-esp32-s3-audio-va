@@ -701,12 +701,11 @@ voice_assistant:
   on_timer_finished:
     - lambda: id(update_timers).execute(timer.id, true);
     # "Timer action": ring here, tell HA (esphome.timer_finished, e.g. to ring
-    # on another speaker), or both.
-    - if:
-        condition:
-          lambda: return id(timer_action).current_option() != "Send event";
-        then:
-          - switch.turn_on: timer_ringing
+    # on another speaker), both, or ring silently here while HA rings
+    # elsewhere ("External speaker"; see start_ring).
+    - lambda: |-
+        const std::string action = id(timer_action).current_option();
+        if (action != "Send event") id(start_ring).execute(action == "External speaker");
     - if:
         condition:
           lambda: return id(timer_action).current_option() != "Play sound";
@@ -923,6 +922,12 @@ globals:
     restore_value: no
     initial_value: 'false'
   - id: wake_beep_playing        # the wake beep is playing, heard even if muted
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The current ring is silent here: an HA automation rings on another
+  # speaker ("External speaker" action). Set by start_ring.
+  - id: ring_silent
     type: bool
     restore_value: no
     initial_value: 'false'
@@ -1182,7 +1187,8 @@ script:
           }
 
   # What the speaker should do right now, in priority order:
-  #   1. a timer or the alarm rings -> "Ring volume", unmuted
+  #   1. a timer or the alarm rings -> "Ring volume", unmuted (not for a
+  #                                    silent ring, see start_ring)
   #   2. the wake beep plays        -> the player's volume, unmuted (so the
   #                                    beep is heard even with the player
   #                                    muted or at zero, at volume_min)
@@ -1201,7 +1207,7 @@ script:
           auto mapped = [](float v) -> float {
             return ${volume_min} + v * (${volume_max} - ${volume_min});
           };
-          if (id(timer_ringing).state) {
+          if (id(timer_ringing).state && !id(ring_silent)) {
             spk->set_volume(mapped(id(ring_volume).state / 100.0f));
             spk->set_mute_state(false);
           } else if (id(wake_beep_playing)) {
@@ -1248,6 +1254,26 @@ script:
           then:
             - lambda: id(reply_silenced) = true;
             - script.execute: apply_speaker_output
+
+  # Start a ring from a timer or the alarm. `silent` ("External speaker"
+  # action): the device rings without sound (Ringing on, purple ring, stopped
+  # by the wake word, Play/Pause, HA or the 15-minute limit) while an HA
+  # automation on the event rings on another speaker until Ringing goes off.
+  # A ring already going on stays as it is, except that an audible request
+  # turns a silent ring audible.
+  - id: start_ring
+    parameters:
+      silent: bool
+    then:
+      - lambda: |-
+          if (!id(timer_ringing).state) {
+            id(ring_silent) = silent;
+            id(timer_ringing).turn_on();
+          } else if (id(ring_silent) && !silent) {
+            id(ring_silent) = false;
+            id(apply_speaker_output).execute();
+            id(ring_timer).execute();
+          }
 
   # Give up on a ring nobody stops. A script (not a delay in the switch's own
   # trigger) so that stopping the ring cancels the countdown, and a later
@@ -1317,7 +1343,7 @@ script:
 
           ESP_LOGI("alarm", "Alarm %02d:%02d (%s)", (int) now.hour, (int) now.minute, days.c_str());
           const std::string action = id(alarm_action).current_option();
-          if (action != "Send event") id(timer_ringing).turn_on();
+          if (action != "Send event") id(start_ring).execute(action == "External speaker");
           if (action != "Play sound") id(send_alarm_event).execute();
           // A one-off alarm switches itself off once it has gone off.
           if (days == "Once") id(alarm_on).turn_off();
@@ -1456,7 +1482,8 @@ select:
     initial_option: "Every day"
   # What a finished voice timer does: ring on the device, fire the
   # esphome.timer_finished event in HA (data: name) so an automation can ring
-  # on another speaker, or both.
+  # on another speaker, or both. "External speaker" fires the event and rings
+  # here silently, so the wake word still stops it (see start_ring).
   - platform: template
     id: timer_action
     name: "Timer action"
@@ -1468,9 +1495,11 @@ select:
       - "Play sound"
       - "Send event"
       - "Sound and event"
+      - "External speaker"
     initial_option: "Play sound"
   # What the alarm does: ring on the device, fire the esphome.alarm_ringing
-  # event in HA (for automations: lights, blinds, ...), or both.
+  # event in HA (for automations: lights, blinds, ...), or both. "External
+  # speaker" works as for the timer action.
   - platform: template
     id: alarm_action
     name: "Alarm action"
@@ -1482,6 +1511,7 @@ select:
       - "Play sound"
       - "Send event"
       - "Sound and event"
+      - "External speaker"
     initial_option: "Play sound"
 
 switch:
@@ -1625,18 +1655,28 @@ switch:
           decibel_reduction: 20
           duration: 0.0s
       - script.execute: apply_speaker_output
-      - script.execute: ring_timer
+      # A silent ring (see start_ring) plays nothing here.
+      - if:
+          condition:
+            lambda: return !id(ring_silent);
+          then:
+            - script.execute: ring_timer
       - script.execute: control_leds
       - script.execute: ring_timeout   # gives up after 15 min
     on_turn_off:
       - script.stop: ring_timeout
       - script.execute: disable_repeat
+      # Stop the ring sound; a silent ring has none, so leave any other
+      # announcement playing.
       - if:
           condition:
-            media_player.is_announcing:
+            and:
+              - lambda: return !id(ring_silent);
+              - media_player.is_announcing:
           then:
             media_player.stop:
               announcement: true
+      - lambda: id(ring_silent) = false;
       - script.execute: apply_speaker_output
       - mixer_speaker.apply_ducking:
           id: media_mixing_input

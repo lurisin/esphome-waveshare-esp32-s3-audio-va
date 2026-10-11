@@ -313,35 +313,54 @@ automation:
 The alarm already has the same choice in **Alarm action**
 (`esphome.alarm_ringing`).
 
-That event fires once. To keep a timer or the alarm **repeating on the
-external speaker until you stop it**, leave the action on *Play sound* (or
-*Sound and event*) and follow the **Ringing** switch: it is on for as long as
-the device rings, and goes off when you stop it (wake word, Play/Pause, or
-after 15 minutes). Turning it off from HA stops the ring too.
+That event fires once. To have the external speaker **repeat until you stop
+it**, combine the event (which says *what* rings: the alarm, or which timer)
+with the **Ringing** switch (which says *for how long*: it is on while the
+device rings and goes off when you stop it with the wake word, Play/Pause,
+from HA, or after 15 minutes). Set the action to:
+
+- **External speaker**: the device rings *silently* (Ringing on, purple ring,
+  the wake word still stops it) and fires the event; only the external
+  speaker is heard.
+- **Sound and event**: both the device and the external speaker ring.
 
 ```yaml
 automation:
-  - alias: Repeat the ring on the living room speaker
+  - alias: Ring on the living room speaker
     mode: restart
     triggers:
-      - trigger: state
-        entity_id: switch.waveshare_voice_ringing         # yours may differ
-        to: "on"
+      - trigger: event
+        event_type: esphome.timer_finished
+        id: timer
+      - trigger: event
+        event_type: esphome.alarm_ringing
+        id: alarm
+    variables:
+      ringing: switch.waveshare_voice_ringing           # yours may differ
+      message: >-
+        {% if trigger.id == 'alarm' %}Time to get up
+        {% elif trigger.event.data.name %}Timer {{ trigger.event.data.name }} finished
+        {% else %}Timer finished{% endif %}
     actions:
+      # The switch and the event arrive together; give Ringing a moment.
+      - wait_template: "{{ is_state(ringing, 'on') }}"
+        timeout: 3
+        continue_on_timeout: true
       - repeat:
-          while:
-            - condition: state
-              entity_id: switch.waveshare_voice_ringing
-              state: "on"
           sequence:
             - action: tts.speak
               target:
                 entity_id: tts.piper
               data:
                 media_player_entity_id: media_player.living_room
-                message: Timer finished
+                message: "{{ message }}"
             - delay: 5
+          until:
+            - condition: template
+              value_template: "{{ not is_state(ringing, 'on') }}"
 ```
+
+With *Send event* Ringing never turns on, so this speaks once.
 
 ### Custom wake word models
 
