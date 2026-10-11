@@ -43,16 +43,20 @@ substitutions:
   # board plays back at 16 kHz mono, so a small 16 kHz mono file is plenty.
   # boot_sound_file: https://example.com/my-chime.mp3
 
-  # Mic gain, LED brightness, wake-word sensitivity and the alarm are all
+  # Mic gain, LED brightness, wake-word sensitivity, volumes and the alarm are all
   # exposed as entities in Home Assistant - no need to reflash to change them.
 
+# The core comes from this fork (lurisin), based on Michał Zaniewicz's original
+# (github.com/MichalZaniewicz/esphome-waveshare-esp32-s3-audio-va).
 packages:
   core:
-    url: https://github.com/MichalZaniewicz/esphome-waveshare-esp32-s3-audio-va
+    url: https://github.com/lurisin/esphome-waveshare-esp32-s3-audio-va
     ref: main
     files:
       - base/core.yaml
-    refresh: 1d      # re-check main for updates once a day
+    # Re-check for updates once a day; until then an Install reuses the cached
+    # copy. Use 0s while testing changes (re-downloads on every Install).
+    refresh: 1d
 
 # Wi-Fi and the API key come from your local secrets.yaml.
 
