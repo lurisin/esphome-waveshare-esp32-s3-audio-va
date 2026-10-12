@@ -1,0 +1,124 @@
+# Home Assistant custom sentences: Italian voice timers, matched locally.
+# Copy to <config>/custom_sentences/it/timers.yaml and restart Home Assistant.
+#
+# Covers starting a timer (with or without a name) and asking how long is
+# left. Cancelling uses Home Assistant's own sentences ("cancella il timer").
+# Custom sentences win over the built-in ones, so every sentence below is
+# anchored on "timer", a duration or a fixed verb, and never captures the
+# built-in pause / add / remove / cancel / delayed-command phrases.
+
+language: "it"
+
+lists:
+  # "un'ora" (with the apostrophe the number lists don't parse) -> hours
+  tm_un_ora:
+    values:
+      - in: "(un'ora|un'oretta|un oretta|una ora|un ora)"
+        out: 1
+  # "... ore e mezza / e un quarto / e tre quarti" -> minutes
+  tm_frazione_ora:
+    values:
+      - in: "mezz(a|o)"
+        out: 30
+      - in: "[un] quarto"
+        out: 15
+      - in: "(tre|3) quarti"
+        out: 45
+  # "... minuti e mezzo" -> seconds
+  tm_mezzo:
+    values:
+      - in: "mezz(o|a)"
+        out: 30
+  # Whole durations in minutes
+  tm_fissi_min:
+    values:
+      - in: "[una ](mezz'ora|mezzora|mezz ora|mezza ora|mezz'oretta|mezzoretta)"
+        out: 30
+      - in: "[un ](quarto d'ora|quarto d ora|quarto di ora|quarto d'oretta)"
+        out: 15
+      - in: "(tre|3) quarti d'ora"
+        out: 45
+      - in: "un paio di minuti"
+        out: 2
+      - in: "un paio d'ore"
+        out: 120
+  # Whole durations in seconds
+  tm_fissi_sec:
+    values:
+      - in: "mezzo minuto"
+        out: 30
+
+expansion_rules:
+  # "metti", "mi metti", "puoi mettere" ("puoi" is a skip word), ...
+  tm_verbo: "[mi |ci ](imposta|imposti|impostami|impostare|metti|mettimi|mettere|avvia|avviami|avviare|fai partire|fammi partire|far partire|parti con|crea|creami|creare|fai|fammi|fare|dammi|setta|settami|settare|programma|programmami|programmare|attiva|attivami|attivare|inizia|iniziare|comincia|lancia|lanciami|vorrei|voglio|mi serve|serve)"
+  tm_timer: "[un |il |uno |nuovo |un nuovo ](timer|conto alla rovescia|countdown|contaminuti|conta minuti)"
+  tm_di: "(di|da|per|a|d')"
+
+  # Durations
+  tm_h: "({timer_hours:hours} or(a|e)|{tm_un_ora:hours})"
+  tm_m: "{timer_minutes:minutes} minut(o|i)"
+  tm_s: "{timer_seconds:seconds} second(o|i)"
+  tm_durata: "(<tm_h> [e] <tm_m> [e] <tm_s>|<tm_h> [e] <tm_m>|<tm_h> e {timer_minutes:minutes}|<tm_h> e {tm_frazione_ora:minutes}|<tm_h> [e] <tm_s>|<tm_h>|<tm_m> [e] <tm_s>|<tm_m> e {timer_seconds:seconds}|<tm_m> e {tm_mezzo:seconds}|<tm_m>|<tm_s>|{tm_fissi_min:minutes}|{tm_fissi_sec:seconds})"
+
+  # Timer name. Before the duration the preposition is optional ("timer pasta
+  # 5 minuti"); after it, one is required, so "5 minuti in più al timer"
+  # stays the built-in "add time" sentence.
+  tm_prep_nome: "(per|di|del|della|dello|dei|degli|delle|per il|per la|per lo|per i|per gli|per le|chiamato|chiamata|di nome|nominato|con nome|col nome)"
+  tm_nome_pre: "[<tm_prep_nome> ]{timer_name:name}"
+  tm_nome_post: "<tm_prep_nome> {timer_name:name}"
+
+  # "avvisami tra 10 minuti"
+  tm_avvisa: "(avvisami|avvertimi|svegliami|chiamami|richiamami|ricordami|ricordamelo|fammi sapere|dimmelo|suona|squilla|fai suonare|conta|contami)"
+
+  # Status
+  tm_resta: "(manca|mancano|resta|restano|rimane|rimangono|ci vuole|ci manca|ci resta|ci rimane)"
+  tm_al_timer: "(al|ai|sul|sui|del|dei|per il|per i|nel|nei) [mio |miei |nostro |nostri ]timer"
+  # Name without the word "timer": only "manca/resta/rimane" and an article,
+  # so "quanto tempo ci vuole per cuocere la pasta" is left to the agent.
+  tm_resta_nome: "(manca|mancano|resta|restano|rimane|rimangono)"
+  tm_al_nome: "(al|allo|alla|all'|ai|agli|alle|per il|per la|per lo|per i|per gli|per le) {timer_name:name}"
+
+intents:
+  HassStartTimer:
+    data:
+      - sentences:
+          # "imposta un timer di 5 minuti", "timer 5 minuti", "metti il timer a 10 minuti"
+          - "[<tm_verbo> ]<tm_timer> [<tm_di> ]<tm_durata>"
+          # "timer pasta 5 minuti", "metti un timer per la pasta di 8 minuti".
+          # After the name only "di" / "per": the matcher may split a word, so
+          # "a" or "da" there would cut "pasta" to "past", "lavanda" to "lavan".
+          - "[<tm_verbo> ]<tm_timer> <tm_nome_pre> <tm_durata>"
+          - "[<tm_verbo> ]<tm_timer> <tm_nome_pre> (di|per) <tm_durata>"
+          # "timer di 8 minuti per la pasta"
+          - "[<tm_verbo> ]<tm_timer> [<tm_di> ]<tm_durata> <tm_nome_post>"
+          # "metti 5 minuti", "metti 8 minuti per la pasta"
+          - "<tm_verbo> <tm_durata> [<tm_nome_post>]"
+          # "avvisami tra 10 minuti", "ricordami tra 10 minuti di girare la pasta"
+          - "<tm_avvisa> [tra|fra|dopo|in] <tm_durata> [<tm_nome_post>]"
+          # "5 minuti di timer", "8 minuti per la pasta"
+          - "<tm_durata> (di|col|con il|con) timer"
+          - "<tm_durata> <tm_nome_post>"
+        response: default
+
+  HassTimerStatus:
+    data:
+      - sentences:
+          # "quanto manca", "quanto tempo resta al timer", "quanto ci vuole ancora"
+          - "quanto [tempo] <tm_resta> [ancora] [<tm_al_timer>]"
+          - "quanti (minuti|secondi|ore) <tm_resta> [ancora] [<tm_al_timer>]"
+          - "(a che punto|come) (è|sta|siamo con|va|procede|sta andando) [con] (il|i) [mio |miei ]timer"
+          - "[lo ](stato|status|situazione) (del|dei|di) [mio |miei ]timer"
+          - "(che|quali|quanti) timer (ci sono|ho|abbiamo|sono attivi|sono impostati|stanno andando|sono in corso|ci sono attivi|hai impostato)"
+          - "(ci sono|ho|abbiamo) [dei ]timer [attivi|impostati|in corso]"
+          - "(controlla|verifica|mostrami|fammi sapere) [lo stato (del|dei)|il|i] timer"
+          - "timer (attivi|in corso)"
+        response: default
+      - sentences:
+          # "quanto manca al timer della pasta", "stato del timer per la pasta"
+          - "quanto [tempo] <tm_resta> [ancora] <tm_al_timer> <tm_nome_post>"
+          - "quanti (minuti|secondi|ore) <tm_resta> [ancora] <tm_al_timer> <tm_nome_post>"
+          - "(a che punto|come) (è|sta|va|procede) [con] il timer <tm_nome_post>"
+          - "[lo ](stato|status) del timer <tm_nome_post>"
+          # "quanto manca alla pasta", "quanto manca per le uova"
+          - "quanto [tempo] <tm_resta_nome> [ancora] <tm_al_nome>"
+        response: default

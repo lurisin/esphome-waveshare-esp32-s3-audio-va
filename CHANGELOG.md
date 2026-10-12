@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Added
+- **Italian Assist sentences for voice timers**
+  (`homeassistant/custom_sentences/it/timers.yaml`), to copy into Home
+  Assistant: start a timer in many natural ways ("metti un timer di 5
+  minuti", "timer pasta 8 minuti", "timer di un'ora e mezza", "avvisami tra
+  10 minuti") and ask how long is left ("quanto manca", "quanto manca alla
+  pasta", "quali timer ci sono"), all matched locally.
+- `scripts/test_sentences.py` checks custom sentences offline with Home
+  Assistant's own matching rules, against `homeassistant/tests/it/timers.txt`
+  (166 phrases, including ones that must be left to the built-in sentences
+  or the LLM).
+
+## [1.3.0] - 2026-10-12
+
+First release of this fork (tag `v1.3.0`), on top of the original v1.2.0.
+
+### Added
 - **Replies on an external speaker.** A new **Replies on external speaker**
   switch keeps the device's own speaker silent during Assist replies (and
   announcements sent to it), for an HA automation to play them on any media

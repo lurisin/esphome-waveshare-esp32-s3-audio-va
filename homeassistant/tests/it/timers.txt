@@ -1,0 +1,178 @@
+# Italian timer phrases: '<phrase> => <Intent> [slot=value ...]' (use _ for spaces).
+# '=> none' means no intent. Run: python scripts/test_sentences.py it homeassistant/tests/it/timers.txt
+
+# --- start ---
+imposta un timer di 5 minuti => HassStartTimer minutes=5
+imposta un timer da 5 minuti => HassStartTimer minutes=5
+imposta un timer per 5 minuti => HassStartTimer minutes=5
+imposta il timer a 5 minuti => HassStartTimer minutes=5
+metti un timer di 5 minuti => HassStartTimer minutes=5
+metti il timer di 10 minuti => HassStartTimer minutes=10
+metti un timer a 10 minuti => HassStartTimer minutes=10
+avvia un timer di 3 minuti => HassStartTimer minutes=3
+fai partire un timer di 3 minuti => HassStartTimer minutes=3
+parti con un timer di 3 minuti => HassStartTimer minutes=3
+crea un timer di 20 minuti => HassStartTimer minutes=20
+fammi un timer di 20 minuti => HassStartTimer minutes=20
+fai un timer di 20 minuti => HassStartTimer minutes=20
+dammi un timer di 20 minuti => HassStartTimer minutes=20
+setta un timer di 20 minuti => HassStartTimer minutes=20
+programma un timer di 20 minuti => HassStartTimer minutes=20
+timer 5 minuti => HassStartTimer minutes=5
+timer di 5 minuti => HassStartTimer minutes=5
+timer da 5 minuti => HassStartTimer minutes=5
+un timer di 5 minuti => HassStartTimer minutes=5
+timer cinque minuti => HassStartTimer minutes=5
+imposta un timer di cinque minuti => HassStartTimer minutes=5
+imposta un timer di un minuto => HassStartTimer minutes=1
+timer un minuto => HassStartTimer minutes=1
+timer di un'ora => HassStartTimer hours=1
+timer di un ora => HassStartTimer hours=1
+timer 1 ora => HassStartTimer hours=1
+timer di 2 ore => HassStartTimer hours=2
+timer di mezz'ora => HassStartTimer minutes=30
+timer di mezzora => HassStartTimer minutes=30
+imposta un timer di mezz'ora => HassStartTimer minutes=30
+timer di un quarto d'ora => HassStartTimer minutes=15
+timer di un'ora e mezza => HassStartTimer hours=1 minutes=30
+timer di 1 ora e mezza => HassStartTimer hours=1 minutes=30
+timer di un minuto e mezzo => HassStartTimer minutes=1 seconds=30
+timer di 2 minuti e mezzo => HassStartTimer minutes=2 seconds=30
+timer di 1 ora e 20 minuti => HassStartTimer hours=1 minutes=20
+timer di 1 ora e 20 => HassStartTimer hours=1 minutes=20
+timer di 2 minuti e 30 secondi => HassStartTimer minutes=2 seconds=30
+timer di 90 secondi => HassStartTimer seconds=90
+timer di 30 secondi => HassStartTimer seconds=30
+5 minuti di timer => HassStartTimer minutes=5
+avvisami tra 10 minuti => HassStartTimer minutes=10
+avvisami fra 10 minuti => HassStartTimer minutes=10
+svegliami tra 20 minuti => HassStartTimer minutes=20
+chiamami tra 20 minuti => HassStartTimer minutes=20
+ricordamelo tra 10 minuti => HassStartTimer minutes=10
+conta 5 minuti => HassStartTimer minutes=5
+conto alla rovescia di 5 minuti => HassStartTimer minutes=5
+countdown di 5 minuti => HassStartTimer minutes=5
+mi puoi mettere un timer di 5 minuti => HassStartTimer minutes=5
+puoi impostare un timer di 5 minuti per favore => HassStartTimer minutes=5
+mi imposti un timer di 5 minuti => HassStartTimer minutes=5
+mi metti un timer di 5 minuti => HassStartTimer minutes=5
+metti 5 minuti => HassStartTimer minutes=5
+timer pasta 5 minuti => HassStartTimer name=pasta minutes=5
+timer pasta, 5 minuti => HassStartTimer name=pasta minutes=5
+timer pasta un minuto => HassStartTimer name=pasta minutes=1
+timer per la pasta di 8 minuti => HassStartTimer name=pasta minutes=8
+timer per la pasta 8 minuti => HassStartTimer name=pasta minutes=8
+timer della pasta 8 minuti => HassStartTimer name=pasta minutes=8
+timer di 8 minuti per la pasta => HassStartTimer name=pasta minutes=8
+timer 8 minuti per la pasta => HassStartTimer name=pasta minutes=8
+imposta un timer di 8 minuti per la pasta => HassStartTimer name=pasta minutes=8
+imposta un timer per la pasta di 8 minuti => HassStartTimer name=pasta minutes=8
+metti un timer per la pasta di 8 minuti => HassStartTimer name=pasta minutes=8
+metti un timer di 8 minuti per la pasta => HassStartTimer name=pasta minutes=8
+imposta un timer chiamato pasta di 8 minuti => HassStartTimer name=pasta minutes=8
+imposta un timer di 8 minuti chiamato pasta => HassStartTimer name=pasta minutes=8
+timer pasta di 8 minuti => HassStartTimer name=pasta minutes=8
+timer forno 1 ora => HassStartTimer name=forno hours=1
+timer per il forno di mezz'ora => HassStartTimer name=forno minutes=30
+timer per le uova di 9 minuti => HassStartTimer name=uova minutes=9
+8 minuti per la pasta => HassStartTimer name=pasta minutes=8
+avvisami tra 10 minuti per la pasta => HassStartTimer name=pasta minutes=10
+timer per il bucato di un'ora e mezza => HassStartTimer name=bucato hours=1 minutes=30
+spegni la luce cucina tra 5 minuti => HassStartTimer minutes=5
+cancella il timer => HassCancelTimer
+
+# --- names ---
+timer pizza 10 minuti => HassStartTimer name=pizza minutes=10
+timer torta 40 minuti => HassStartTimer name=torta minutes=40
+timer per la torta di 40 minuti => HassStartTimer name=torta minutes=40
+timer lavanda 5 minuti => HassStartTimer name=lavanda minutes=5
+timer bucato di 1 ora => HassStartTimer name=bucato hours=1
+timer per il bucato di un ora => HassStartTimer name=bucato hours=1
+timer merenda 10 minuti => HassStartTimer name=merenda minutes=10
+timer per la merenda 10 minuti => HassStartTimer name=merenda minutes=10
+timer per la merenda di 10 minuti => HassStartTimer name=merenda minutes=10
+timer pomodori 20 minuti => HassStartTimer name=pomodori minutes=20
+timer per la pasta al forno di 30 minuti => HassStartTimer name=pasta_al_forno minutes=30
+timer patate 25 minuti => HassStartTimer name=patate minutes=25
+imposta il timer pasta 8 minuti => HassStartTimer name=pasta minutes=8
+timer 10 minuti per il riso => HassStartTimer name=riso minutes=10
+timer di 3 minuti e mezzo per le uova => HassStartTimer name=uova minutes=3 seconds=30
+ricordami tra 10 minuti di girare la pasta => HassStartTimer name=girare_la_pasta minutes=10
+timer di un'ora e un quarto => HassStartTimer hours=1 minutes=15
+timer di 2 ore e mezza => HassStartTimer hours=2 minutes=30
+timer di tre quarti d'ora => HassStartTimer minutes=45
+timer di mezzo minuto => HassStartTimer seconds=30
+timer di un paio di minuti => HassStartTimer minutes=2
+
+# --- status ---
+quanto manca => HassTimerStatus
+quanto tempo manca => HassTimerStatus
+quanto manca al timer => HassTimerStatus
+quanto tempo manca al timer => HassTimerStatus
+quanto tempo resta al timer => HassTimerStatus
+quanto tempo rimane al timer => HassTimerStatus
+quanto resta => HassTimerStatus
+quanto rimane => HassTimerStatus
+quanto manca ancora => HassTimerStatus
+quanto ci vuole ancora => HassTimerStatus
+quanto manca al mio timer => HassTimerStatus
+quanto manca ai timer => HassTimerStatus
+quanti minuti mancano => HassTimerStatus
+quanti minuti mancano al timer => HassTimerStatus
+quanti secondi mancano => HassTimerStatus
+a che punto è il timer => HassTimerStatus
+come va il timer => HassTimerStatus
+come sta andando il timer => HassTimerStatus
+stato del timer => HassTimerStatus
+stato dei timer => HassTimerStatus
+lo stato del timer => HassTimerStatus
+quali timer ci sono => HassTimerStatus
+che timer ci sono => HassTimerStatus
+quanti timer ci sono => HassTimerStatus
+quali timer sono attivi => HassTimerStatus
+ci sono timer attivi => HassTimerStatus
+ho dei timer => HassTimerStatus
+timer attivi => HassTimerStatus
+controlla il timer => HassTimerStatus
+dimmi quanto manca al timer => HassTimerStatus
+mi dici quanto manca => HassTimerStatus
+quanto manca al timer della pasta => HassTimerStatus name=pasta
+quanto manca al timer per la pasta => HassTimerStatus name=pasta
+quanto tempo manca al timer della pasta => HassTimerStatus name=pasta
+quanto manca alla pasta => HassTimerStatus name=pasta
+quanto manca per la pasta => HassTimerStatus name=pasta
+quanto manca al forno => HassTimerStatus name=forno
+quanto manca alle uova => HassTimerStatus name=uova
+quanto tempo resta alla pasta => HassTimerStatus name=pasta
+a che punto è il timer della pasta => HassTimerStatus name=pasta
+stato del timer della pasta => HassTimerStatus name=pasta
+quanto tempo manca al timer chiamato pasta => HassTimerStatus name=pasta
+stato del timer in cucina => HassTimerStatus area=cucina
+
+# --- built-in sentences that must keep working ---
+cancella il timer => HassCancelTimer
+annulla il timer => HassCancelTimer
+ferma il timer => HassCancelTimer
+cancella tutti i timer => HassCancelAllTimers
+metti in pausa il timer => HassPauseTimer
+riprendi il timer => HassUnpauseTimer
+aggiungi 5 minuti al timer => HassIncreaseTimer minutes=5
+togli 5 minuti dal timer => HassDecreaseTimer minutes=5
+riduci il timer di 5 minuti => HassDecreaseTimer minutes=5
+diminuisci il timer di 5 minuti => HassDecreaseTimer minutes=5
+rimuovi 5 minuti dal timer => HassDecreaseTimer minutes=5
+spegni le luci tra 5 minuti => HassStartTimer minutes=5 conversation_command=spegni_le_luci
+tra 10 minuti accendi la televisione => HassStartTimer minutes=10
+che ore sono => HassGetCurrentTime
+
+# --- must NOT be taken by the custom sentences (left to the agent / LLM) ---
+quanto manca a natale => none
+quanto tempo ci vuole per cuocere la pasta => none
+quanto ci vuole per la pasta => none
+quanto manca per arrivare a roma => none
+quanti minuti ci vogliono per le uova sode => none
+avvisami quando finisce la lavatrice => none
+fai partire la lavatrice => none
+metti la musica => none
+conta fino a 10 => none
+come va => none

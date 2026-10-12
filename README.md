@@ -30,10 +30,10 @@ or [buy him a coffee](https://buymeacoffee.com/zanula).
 
 ![Trailer: the voice assistant, the LED ring animations and the Home Assistant controls](docs/trailer.webp)
 
-> **Status:** based on the original **v1.2.0** (stable: wake word, STT/TTS,
-> clean playback and the LED ring confirmed on-device), plus this fork's
-> additions, tested on the board. The release history is in
-> [CHANGELOG.md](CHANGELOG.md); the fork's changes are under *Unreleased*.
+> **Status: v1.3.0**, this fork's first release: the original **v1.2.0**
+> (stable: wake word, STT/TTS, clean playback and the LED ring confirmed
+> on-device) plus this fork's additions, tested on the board. The release
+> history is in [CHANGELOG.md](CHANGELOG.md).
 
 ```
 You  ──▶  Waveshare ESP32-S3  ──▶  Home Assistant Assist
@@ -198,6 +198,10 @@ docs/
 scripts/
   validate.py              # offline YAML check (syntax, substitutions, duplicate ids)
   esplog.py                # stream device logs over the native API
+  test_sentences.py        # test Assist custom sentences offline
+homeassistant/
+  custom_sentences/it/     # Italian Assist sentences to copy into Home Assistant
+  tests/it/                # phrases they must (and must not) match
 skill/
   waveshare-esp32-s3-audio/  # Claude Code skill: pinout + hard-won gotchas
 ```
@@ -465,38 +469,43 @@ wake word.
 
 ### Extra voice phrases
 
-Assist only understands the sentences its language ships with. If a phrase you
-use is not recognised (it goes to the LLM, or gets "Sorry, I couldn't
-understand that"), add it as a custom sentence in Home Assistant, in
-`config/custom_sentences/<language>/`, then restart HA. **Developer tools >
-Assist** shows whether a sentence is matched, and with which values. An Italian
-example, for "quanto manca al timer" and "timer pasta 5 minuti":
+Assist only understands the sentences its language ships with; anything else
+goes to the LLM (if you have one) or gets "Sorry, I couldn't understand that".
+Custom sentences in Home Assistant fill the gaps and keep more of it local.
 
-```yaml
-# config/custom_sentences/it/timer.yaml
-language: "it"
-intents:
-  HassTimerStatus:
-    data:
-      - sentences:
-          - "quanto manca [a|su](l[ mio]|i[ miei]) timer"
-          - "quanto (resta|rimane) [a|su](l[ mio]|i[ miei]) timer"
-        response: default
-      - sentences:
-          - "quanto manca [a|su](l[ mio]|i[ miei]) timer (nominato|chiamato|per|della|del|di) {timer_name:name}"
-        response: default
-  HassStartTimer:
-    data:
-      - sentences:
-          - "[(avvia|imposta|crea|attiva) [un |il ]]timer [(per|di|della|del|per la|per il) ]{timer_name:name} [(per|da|di|d') ]{timer_minutes:minutes} minut(o|i)"
-          - "[(avvia|imposta|crea|attiva) [un |il ]]timer [(per|di|della|del|per la|per il) ]{timer_name:name} [(per|da|di|d') ]{timer_seconds:seconds} second(o|i)"
-          - "[(avvia|imposta|crea|attiva) [un |il ]]timer [(per|di|della|del|per la|per il) ]{timer_name:name} [(per|da|di|d') ]{timer_hours:hours} or(a|e)"
-        response: default
-      - sentences:
-          - "[(avvia|imposta|crea|attiva) [un |il ]]timer [(per|di|della|del|per la|per il) ]{timer_name:name} [(per|da|di|d') ]un minuto"
-        slots:
-          minutes: 1
-        response: default
+This repo ships tested Italian sentences for **voice timers** in
+[`homeassistant/custom_sentences/it/timers.yaml`](homeassistant/custom_sentences/it/timers.yaml):
+starting a timer ("metti un timer di 5 minuti", "timer pasta 8 minuti",
+"timer di un'ora e mezza", "avvisami tra 10 minuti", "8 minuti per le uova")
+and asking how long is left ("quanto manca", "quanto manca alla pasta",
+"a che punto è il timer", "quali timer ci sono"). Cancelling keeps Home
+Assistant's own sentences ("cancella il timer").
+
+1. Copy the file to `<config>/custom_sentences/it/timers.yaml` in Home
+   Assistant (and remove any older custom timer file, so the two don't mix).
+2. Restart Home Assistant.
+3. Check a phrase in **Developer tools > Assist**: it shows the intent and the
+   values matched.
+
+A few things to know:
+
+- After a timer's **name** use *di* or *per*, or nothing ("timer pasta di 8
+  minuti", "timer pasta 8 minuti"). *da* and *a* there would make the matcher
+  cut names like "pasta" or "lavanda", so they are left out.
+- Numbers work as digits (what speech-to-text usually writes) and as common
+  words ("un", "cinque", "dieci"); compound words like "ventitre" do not.
+- "quanto manca alla/al ..." is read as a timer question, so "quanto manca
+  alla fine del film" answers about timers instead of going to the LLM.
+
+The sentences are checked offline, with the same matching rules Home Assistant
+uses, against [`homeassistant/tests/it/timers.txt`](homeassistant/tests/it/timers.txt):
+the phrases that must start a timer or report on it, with the right values,
+and the ones that must be left alone (pause, add time, delayed commands, LLM
+questions). After editing the sentences:
+
+```bash
+pip install hassil home-assistant-intents pyyaml
+python scripts/test_sentences.py it homeassistant/tests/it/timers.txt
 ```
 
 ## Claude Code skill
