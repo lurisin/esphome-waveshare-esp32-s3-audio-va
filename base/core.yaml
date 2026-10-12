@@ -56,6 +56,13 @@ substitutions:
   # ---------------------------------------------------------------------------
   hidden_ssid: 'false'      # true = fast_connect, required for a hidden SSID
 
+  # Fallback hotspot: if the configured Wi-Fi can't be reached for 90 s, the
+  # board opens its own access point (named after the device) with a captive
+  # portal where you can enter new credentials. Empty = an open hotspot (the
+  # usual ESPHome ready-made-device setup). Set 8+ characters in your thin
+  # config to protect it with WPA2.
+  fallback_ap_password: ''
+
   # Software off: long-press the onboard BOOT button (GPIO0) for ~2 s to enter
   # deep sleep; a short press wakes the board again. Off by default - set to
   # 'true' in your thin config to enable it. Note the savings on this board are
@@ -91,6 +98,10 @@ esphome:
             id: next_timer
             state: -1
         - script.execute: control_leds
+        # Set the clock from the onboard RTC, so the time (and the alarm) works
+        # before HA connects, or without HA at all. Skipped by the driver if the
+        # RTC lost power (no backup cell) and has no valid time.
+        - pcf85063.read_time: rtc_chip
         # Safety net: if HA never connects, stop showing the boot animation.
         - delay: 10min
         - if:
@@ -101,13 +112,8 @@ esphome:
               - script.execute: control_leds
     - priority: -100
       then:
-        # Restore the alarm settings and the timezone saved in flash.
-        - lambda: |-
-            id(alarm_time).publish_state(id(saved_alarm_time));
-        - lambda: |-
-            auto call = id(alarm_action).make_call();
-            call.set_option(id(saved_alarm_action));
-            call.perform();
+        # Restore the timezone saved in flash. (The alarm entities restore
+        # themselves.)
         - lambda: |-
             setenv("TZ", id(saved_time_zone).c_str(), 1);
             tzset();
@@ -187,14 +193,23 @@ wifi:
   fast_connect: ${hidden_ssid}
   power_save_mode: none     # audio streaming hates Wi-Fi power saving
   reboot_timeout: 10min
+  ap:
+    password: "${fallback_ap_password}"
   on_connect:
     - lambda: id(improv_ble_in_progress) = false;
     - script.execute: control_leds
   on_disconnect:
     - script.execute: control_leds
 
+# Served on the fallback hotspot (see `fallback_ap_password`).
+captive_portal:
+
 logger:
   level: DEBUG
+
+# Backs the free heap / PSRAM diagnostic sensors below.
+debug:
+  update_interval: 60s
 
 api:
   id: api_id
@@ -210,17 +225,28 @@ api:
     - action: stop_va
       then:
         - voice_assistant.stop
+    # Kept for automations written before the "Alarm time" entity existed;
+    # it just sets that entity. "HH:MM", 24 h.
     - action: set_alarm_time
       variables:
         alarm_time_hh_mm: string
       then:
         - lambda: |-
-            if (alarm_time_hh_mm.length() == 5 &&
-              isdigit(alarm_time_hh_mm[0]) && isdigit(alarm_time_hh_mm[1]) &&
-              isdigit(alarm_time_hh_mm[3]) && isdigit(alarm_time_hh_mm[4])) {
-                id(alarm_time).publish_state(alarm_time_hh_mm);
-                id(saved_alarm_time) = alarm_time_hh_mm;
-              }
+            const std::string s = alarm_time_hh_mm;
+            if (s.length() != 5 || s[2] != ':' || !isdigit(s[0]) || !isdigit(s[1]) ||
+                !isdigit(s[3]) || !isdigit(s[4])) {
+              ESP_LOGW("alarm", "set_alarm_time: expected HH:MM, got '%s'", s.c_str());
+              return;
+            }
+            const int h = (s[0] - '0') * 10 + (s[1] - '0');
+            const int m = (s[3] - '0') * 10 + (s[4] - '0');
+            if (h > 23 || m > 59) {
+              ESP_LOGW("alarm", "set_alarm_time: '%s' is not a valid time", s.c_str());
+              return;
+            }
+            auto call = id(alarm_clock_time).make_call();
+            call.set_time(h, m, 0);
+            call.perform();
     - action: set_time_zone
       variables:
         posix_time_zone: string
@@ -265,6 +291,10 @@ tca9555:
   i2c_id: internal_i2c
   address: 0x20
 
+# Two clocks feed the one system clock: HA is the reference, and the onboard
+# PCF85063 RTC (with a backup cell on its header) carries the time across
+# reboots and HA outages. Each HA sync is written back to the RTC. The on_time
+# schedule below reads the system clock, so it runs whichever source set it.
 time:
   - platform: homeassistant
     id: rtc
@@ -273,6 +303,16 @@ time:
         minutes: /1
         then:
           - script.execute: check_alarm
+    on_time_sync:
+      - pcf85063.write_time:
+          id: rtc_chip
+      - script.execute: publish_current_time
+  - platform: pcf85063
+    id: rtc_chip
+    i2c_id: internal_i2c
+    # Read once at boot (on_boot) rather than polled: a periodic read would
+    # step the HA-synced clock back to the RTC's own, slightly drifted, time.
+    update_interval: never
     on_time_sync:
       - script.execute: publish_current_time
 
@@ -411,19 +451,30 @@ media_player:
                 id: media_mixing_input
                 decibel_reduction: 0
                 duration: 1.0s
+    # The player has just pushed its new volume/mute to the speaker. While a
+    # ring or a silenced reply owns the speaker, put that back
+    # at once: the general volume is kept and applies when they end, and the
+    # ring only follows its own "Ring volume" slider.
     on_mute:
+      - if: &keep_speaker_override
+          condition:
+            lambda: return id(timer_ringing).state || id(reply_silenced);
+          then:
+            - script.execute: apply_speaker_output
       - delay: 100ms            # debounce
       - script.execute: control_leds_volume_changed
     on_unmute:
+      - if: *keep_speaker_override
       - delay: 100ms
       - script.execute: control_leds_volume_changed
     on_volume:
-      if:
-        condition:
-          - lambda: return !id(init_in_progress);
-        then:
-          - delay: 100ms
-          - script.execute: control_leds_volume_changed
+      - if: *keep_speaker_override
+      - if:
+          condition:
+            - lambda: return !id(init_in_progress);
+          then:
+            - delay: 100ms
+            - script.execute: control_leds_volume_changed
     files:
       - id: timer_finished_sound
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/timer_finished.flac
@@ -541,7 +592,11 @@ voice_assistant:
               sound_file: !lambda return id(boot_sound_custom);
   on_client_disconnected:
     - voice_assistant.stop:
-    - lambda: id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
+    - lambda: |-
+        id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
+        id(reply_silenced) = false;
+        id(reply_streamed) = false;
+    - script.execute: apply_speaker_output
     - script.execute: control_leds
   on_error:
     # duplicate_wake_up_detected and stt-no-text-recognized are normal; showing
@@ -564,6 +619,7 @@ voice_assistant:
               priority: true
               sound_file: !lambda return id(error_cloud_expired);
   on_start:
+    - lambda: id(reply_streamed) = false;
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
         decibel_reduction: 30    # duck music hard while listening
@@ -577,6 +633,12 @@ voice_assistant:
   on_stt_vad_end:
     - lambda: id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
     - script.execute: control_leds
+  # Replies on an external speaker: the reply's audio URL goes to HA as the
+  # esphome.tts_uri event (for an automation to play elsewhere), and while
+  # "Replies on external speaker" is on the device's own speaker is silenced
+  # for the reply. A streamed reply (long LLM answers) starts playing at
+  # intent progress, before tts_start, so both are hooked; the event then
+  # goes out at once instead of when the whole reply is ready.
   on_intent_progress:
     - if:
         condition:
@@ -584,8 +646,16 @@ voice_assistant:
           lambda: 'return !x.empty();'
         then:
           - lambda: id(voice_assistant_phase) = ${voice_assist_replying_phase_id};
+          - script.execute: silence_reply_if_external
+          - lambda: id(reply_streamed) = true;
+          - script.execute:
+              id: send_tts_uri_event
+              tts_uri: !lambda 'return x;'
           - script.execute: control_leds
+  # Also fires for announcements HA sends to this device, so with the switch
+  # on they move to the external speaker too.
   on_tts_start:
+    - script.execute: silence_reply_if_external
     - if:
         condition:
           lambda: 'return id(voice_assistant_phase) != ${voice_assist_replying_phase_id};'
@@ -593,9 +663,16 @@ voice_assistant:
           - lambda: id(voice_assistant_phase) = ${voice_assist_replying_phase_id};
           - script.execute: control_leds
   on_tts_end:
-    - script.execute:
-        id: send_tts_uri_event
-        tts_uri: !lambda 'return x;'
+    # A streamed reply already sent its URL at intent progress.
+    - if:
+        condition:
+          lambda: return id(reply_streamed);
+        then:
+          - lambda: id(reply_streamed) = false;
+        else:
+          - script.execute:
+              id: send_tts_uri_event
+              tts_uri: !lambda 'return x;'
   on_stt_end:
     - script.execute:
         id: send_stt_text_event
@@ -604,6 +681,11 @@ voice_assistant:
     - wait_until:
         not:
           voice_assistant.is_running:
+    # The reply has finished playing: give the speaker back.
+    - lambda: |-
+        id(reply_silenced) = false;
+        id(reply_streamed) = false;
+    - script.execute: apply_speaker_output
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
         decibel_reduction: 0
@@ -615,49 +697,37 @@ voice_assistant:
           - delay: 1s            # let the error colour linger a beat
     - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
     - script.execute: control_leds
+  # A finished or cancelled timer is still in get_timers() while its trigger
+  # runs (the component erases it afterwards), so it is excluded by id here.
   on_timer_finished:
-    - switch.turn_on: timer_ringing
-    - lambda: |
-        id(next_timer).publish_state(-1);
-        id(next_timer_name).publish_state("-");
+    - lambda: id(update_timers).execute(timer.id, true);
+    # "Timer action": ring here, tell HA (esphome.timer_finished, e.g. to ring
+    # on another speaker), both, or ring silently here while HA rings
+    # elsewhere ("External speaker"; see start_ring).
+    - lambda: |-
+        const std::string action = id(timer_action).current_option();
+        if (action != "Send event") id(start_ring).execute(action == "External speaker");
+    - if:
+        condition:
+          lambda: return id(timer_action).current_option() != "Play sound";
+        then:
+          - homeassistant.event:
+              event: esphome.timer_finished
+              data:
+                name: !lambda return timer.name;
   on_timer_started:
-    - lambda: |
-        id(check_if_timers_active).execute();
-        if (id(is_timer_active)) {
-          id(fetch_first_active_timer).execute();
-          id(next_timer).publish_state(id(first_active_timer).seconds_left);
-          id(next_timer_name).publish_state(id(first_active_timer).name);
-        }
+    - lambda: id(update_timers).execute("", true);
     - script.execute: control_leds
   on_timer_cancelled:
-    - lambda: |
-        id(check_if_timers_active).execute();
-        if (id(is_timer_active)) {
-          id(fetch_first_active_timer).execute();
-          id(next_timer).publish_state(id(first_active_timer).seconds_left);
-          id(next_timer_name).publish_state(id(first_active_timer).name);
-        } else {
-          id(next_timer).publish_state(-1);
-          id(next_timer_name).publish_state("-");
-        }
+    - lambda: id(update_timers).execute(timer.id, true);
     - script.execute: control_leds
   on_timer_updated:
-    - lambda: |
-        id(check_if_timers_active).execute();
-        if (id(is_timer_active)) {
-          id(fetch_first_active_timer).execute();
-          id(next_timer).publish_state(id(first_active_timer).seconds_left);
-          id(next_timer_name).publish_state(id(first_active_timer).name);
-        }
+    - lambda: id(update_timers).execute("", true);
     - script.execute: control_leds
   on_timer_tick:
-    - lambda: |
-        id(fetch_first_active_timer).execute();
-        int seconds_left = id(first_active_timer).seconds_left;
-        if (seconds_left % 5 == 0) {
-          id(next_timer).publish_state(seconds_left);
-        }
-        // The ring is repainted centrally by control_leds().
+    # The ring needs no repaint here: the Timer Progress effect reads
+    # first_active_timer on every frame.
+    - lambda: id(update_timers).execute("", false);
 
 light:
   - platform: esp32_rmt_led_strip
@@ -768,6 +838,27 @@ light:
               uint8_t g = (uint8_t)(r * (0.20f + (esp_random() % 45) / 255.0f));
               it[i] = Color(r, g, 0);
             }
+      # Timer countdown: the lit share of the ring is the share of the first
+      # active timer still to go. The leading LED dims through its own share,
+      # so the ring drains smoothly instead of in 1/7 steps, and the first LED
+      # stays faintly lit until the timer ends. Painted by control_leds.
+      - addressable_lambda:
+          name: "Timer Progress"
+          update_interval: 250ms
+          lambda: |-
+            const int n = it.size();
+            const auto &t = id(first_active_timer);
+            const float left = t.total_seconds > 0
+                ? std::min(1.0f, (float) t.seconds_left / (float) t.total_seconds)
+                : 0.0f;
+            const float lit = left * n;
+            for (int i = 0; i < n; i++) {
+              float b = std::max(0.0f, std::min(1.0f, lit - i));
+              if (i == 0) b = std::max(b, 0.15f);
+              it[i] = Color((uint8_t)(current_color.red   * b),
+                            (uint8_t)(current_color.green * b),
+                            (uint8_t)(current_color.blue  * b));
+            }
 
 globals:
   - id: mic_is_muted
@@ -816,24 +907,32 @@ globals:
     type: int
     restore_value: no
     initial_value: ${voice_assist_not_ready_phase_id}
-  - id: saved_alarm_time
-    type: std::string
-    restore_value: yes
-    initial_value: '"Unknown"'
   - id: saved_time_zone
     type: std::string
     restore_value: yes
     initial_value: '"${posix_timezone}"'
-  - id: saved_alarm_action
-    type: std::string
-    restore_value: yes
-    initial_value: '"Play sound"'
   - id: first_active_timer
     type: voice_assistant::Timer
     restore_value: no
   - id: is_timer_active
     type: bool
     restore_value: no
+  # Speaker output overrides, applied by apply_speaker_output.
+  - id: reply_silenced           # a reply is going to the external speaker
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The current ring is silent here: an HA automation rings on another
+  # speaker ("External speaker" action). Set by start_ring.
+  - id: ring_silent
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # The current reply was streamed and its URL already sent at intent progress.
+  - id: reply_streamed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 script:
   # Push the wake word cutoffs for the current "Wake word sensitivity" option.
@@ -868,13 +967,40 @@ script:
                      m->get_probability_cutoff(), m->is_enabled() ? " (active)" : "");
           }
 
+  # A short red flash at the ring's current day/night brightness.
   - id: flash_ring
     then:
-      - light.turn_on: { id: status_ring, red: 1.0, green: 0.0, blue: 0.0, brightness: 100%, effect: "None" }
+      - light.turn_on:
+          id: status_ring
+          red: 1.0
+          green: 0.0
+          blue: 0.0
+          brightness: !lambda 'return id(night_mode).state ? id(night_led_brightness).state : id(led_ring_brightness).state;'
+          effect: "None"
       - delay: 250ms
       # Return to the real state instead of going dark (e.g. if a timer is
       # counting or the VA is active while the mic is muted/unmuted).
       - script.execute: control_leds
+
+  # While the mic is muted, repeat the mute flash every 10 s, so a muted
+  # device doesn't look like an idle one. Started and stopped by the
+  # Microphone Mute switch. Skipped while a timer rings or a voice
+  # interaction runs, so it never cuts into those animations.
+  - id: mute_reminder
+    mode: restart
+    then:
+      - while:
+          condition:
+            lambda: return id(mic_is_muted);
+          then:
+            - delay: 10s
+            - if:
+                condition:
+                  lambda: |-
+                    return id(mic_is_muted) && !id(timer_ringing).state &&
+                           id(voice_assistant_phase) == ${voice_assist_idle_phase_id};
+                then:
+                  - script.execute: flash_ring
 
   # Minimal LED dispatcher: off / solid / a named built-in effect.
   - id: led_set_effect
@@ -935,9 +1061,8 @@ script:
           const bool improv_ble     = id(improv_ble_in_progress);
           const bool init_progress  = id(init_in_progress);
           const int  phase          = id(voice_assistant_phase);
-
-          id(check_if_timers_active).execute();
-          const bool timers_active = id(is_timer_active);
+          // Kept current by update_timers on every timer event.
+          const bool timers_active  = id(is_timer_active);
 
           ESP_LOGD("led",
                    "control_leds: wifi=%d api=%d improv=%d init=%d ringing=%d timers_active=%d phase=%d",
@@ -988,10 +1113,11 @@ script:
             default: break;
           }
 
-          // A timer is counting down. "Timer countdown on ring" turns this off,
-          // so the ring stays dark (e.g. a nap timer in a dark room).
+          // A timer is counting down: the ring drains as it runs out.
+          // "Timer countdown on ring" turns this off, so the ring stays dark
+          // (e.g. a nap timer in a dark room).
           if (timers_active && id(timer_countdown_ring).state) {
-            set("Pulse Slow", 0.6, 0.0, 0.6);
+            set("Timer Progress", 0.6, 0.0, 0.6);
             return;
           }
 
@@ -1057,69 +1183,139 @@ script:
             id(external_media_player)->play_file(sound_file, true, false);
           }
 
-  - id: fetch_first_active_timer
-    mode: single
+  # What the speaker should do right now, in priority order:
+  #   1. a timer or the alarm rings -> "Ring volume", unmuted (not for a
+  #                                    silent ring, see start_ring)
+  #   2. a reply goes external      -> muted
+  #   3. otherwise                  -> the media player's own volume and mute
+  # (The wake beep has no override: it follows the general volume and mute,
+  # so a device turned down to zero stays silent.)
+  # Volumes are mapped into volume_min..volume_max like the media player's.
+  # The speaker is driven directly, so the media player's volume and mute in
+  # HA are left alone. Run whenever one of those states changes, and after
+  # every player volume/mute change while 1-2 hold (media_player on_volume),
+  # so the general volume never leaks into a ring or a silenced reply.
+  - id: apply_speaker_output
     then:
-      - lambda: |
-          static uint32_t last_fetch_time = 0;
-          uint32_t now = millis();
-          if (now - last_fetch_time < 500) return;
-          last_fetch_time = now;
-
-          const auto &timers = id(va).get_timers();
-          if (timers.empty()) return;
-
-          auto output_timer = *timers.begin();
-          for (const auto &timer : timers) {
-            if (timer.is_active && timer.seconds_left <= output_timer.seconds_left) {
-              output_timer = timer;
-            }
+      - lambda: |-
+          auto *mp = id(external_media_player);
+          auto *spk = id(announcement_resampling_speaker);
+          auto mapped = [](float v) -> float {
+            return ${volume_min} + v * (${volume_max} - ${volume_min});
+          };
+          if (id(timer_ringing).state && !id(ring_silent)) {
+            spk->set_volume(mapped(id(ring_volume).state / 100.0f));
+            spk->set_mute_state(false);
+          } else if (id(reply_silenced)) {
+            spk->set_mute_state(true);
+          } else {
+            spk->set_volume(mapped(mp->volume));
+            spk->set_mute_state(mp->is_muted());
           }
-          id(first_active_timer) = output_timer;
 
-  - id: check_if_timers_active
+  # With "Replies on external speaker" on, silence the device for the reply
+  # that is starting; on_end gives the speaker back once it has played.
+  - id: silence_reply_if_external
     then:
-      - lambda: |
-          const auto &timers = id(va).get_timers();
-          bool output = false;
-          if (!timers.empty()) {
-            for (const auto &timer : timers) {
-              if (timer.is_active) {
-                output = true;
-                break;
-              }
-            }
-          }
-          id(is_timer_active) = output;
+      - if:
+          condition:
+            switch.is_on: external_replies
+          then:
+            - lambda: id(reply_silenced) = true;
+            - script.execute: apply_speaker_output
 
+  # Start a ring from a timer or the alarm. `silent` ("External speaker"
+  # action): the device rings without sound (Ringing on, purple ring, stopped
+  # by the wake word, Play/Pause, HA or the 15-minute limit) while an HA
+  # automation on the event rings on another speaker until Ringing goes off.
+  # A ring already going on stays as it is, except that an audible request
+  # turns a silent ring audible.
+  - id: start_ring
+    parameters:
+      silent: bool
+    then:
+      - lambda: |-
+          if (!id(timer_ringing).state) {
+            id(ring_silent) = silent;
+            id(timer_ringing).turn_on();
+          } else if (id(ring_silent) && !silent) {
+            id(ring_silent) = false;
+            id(apply_speaker_output).execute();
+            id(ring_timer).execute();
+          }
+
+  # Give up on a ring nobody stops. A script (not a delay in the switch's own
+  # trigger) so that stopping the ring cancels the countdown, and a later
+  # ring gets its full 15 minutes.
+  - id: ring_timeout
+    mode: restart
+    then:
+      - delay: 15min
+      - switch.turn_off: timer_ringing
+
+  # Pick the active timer closest to finishing into first_active_timer, set
+  # is_timer_active, and publish the "Next timer" sensors. `exclude_id` skips a
+  # timer that is finishing or being cancelled. `full` publishes everything;
+  # otherwise (the 1 s tick) the countdown is published every 5 s, or at once
+  # if a different timer became the next one.
+  - id: update_timers
+    parameters:
+      exclude_id: string
+      full: bool
+    then:
+      - lambda: |-
+          const voice_assistant::Timer *soonest = nullptr;
+          for (const auto &t : id(va).get_timers()) {
+            if (!t.is_active || t.id == exclude_id) continue;
+            if (soonest == nullptr || t.seconds_left < soonest->seconds_left) soonest = &t;
+          }
+          id(is_timer_active) = soonest != nullptr;
+          if (soonest == nullptr) {
+            if (full) {
+              id(next_timer).publish_state(-1);
+              id(next_timer_name).publish_state("-");
+            }
+            return;
+          }
+          const bool changed = soonest->id != id(first_active_timer).id;
+          id(first_active_timer) = *soonest;
+          if (full || changed || soonest->seconds_left % 5 == 0) {
+            id(next_timer).publish_state(soonest->seconds_left);
+          }
+          if (full || changed) {
+            id(next_timer_name).publish_state(soonest->name);
+          }
+
+  # Runs at second 0 of every minute (time: on_time). The clock comes from HA
+  # or, without HA, from the onboard RTC, so the alarm rings offline too.
   - id: check_alarm
     then:
       - lambda: |-
           id(publish_current_time).execute();
-          if (id(alarm_on).state && id(alarm_time).has_state()) {
-            auto set_alarm_time = id(alarm_time).state;
-            if (set_alarm_time.length() == 5 &&
-                isdigit(set_alarm_time[0]) && isdigit(set_alarm_time[1]) &&
-                isdigit(set_alarm_time[3]) && isdigit(set_alarm_time[4])) {
-              auto alarm_hour = std::stoi(set_alarm_time.substr(0, 2));
-              auto alarm_minute = std::stoi(set_alarm_time.substr(3, 2));
+          if (!id(alarm_on).state || !id(alarm_clock_time).has_state()) return;
 
-              auto time_now = id(rtc).now();
-              if (time_now.hour == alarm_hour && time_now.minute == alarm_minute) {
-                std::string action = id(alarm_action).current_option();
-                if (action == "Play sound") {
-                  id(timer_ringing).turn_on();
-                } else if (action == "Send event") {
-                  id(send_alarm_event).execute();
-                } else if (action == "Sound and event") {
-                  id(timer_ringing).turn_on();
-                  id(send_alarm_event).execute();
-                }
-              }
-            } else {
-              ESP_LOGW("alarm", "Incorrect alarm time setting");
-            }
-          }
+          const auto now = id(rtc).now();
+          if (!now.is_valid()) return;   // no clock yet (no HA, RTC not set)
+          if (now.hour != id(alarm_clock_time).hour || now.minute != id(alarm_clock_time).minute) return;
+
+          // Ring once per minute, even if a clock sync steps the time back
+          // across the minute boundary and the schedule fires again.
+          static time_t last_minute = 0;
+          const time_t this_minute = now.timestamp / 60;
+          if (this_minute == last_minute) return;
+
+          // day_of_week: 1 = Sunday ... 7 = Saturday.
+          const std::string days = id(alarm_days).current_option();
+          const bool weekend = now.day_of_week == 1 || now.day_of_week == 7;
+          if ((days == "Weekdays" && weekend) || (days == "Weekends" && !weekend)) return;
+          last_minute = this_minute;
+
+          ESP_LOGI("alarm", "Alarm %02d:%02d (%s)", (int) now.hour, (int) now.minute, days.c_str());
+          const std::string action = id(alarm_action).current_option();
+          if (action != "Send event") id(start_ring).execute(action == "External speaker");
+          if (action != "Play sound") id(send_alarm_event).execute();
+          // A one-off alarm switches itself off once it has gone off.
+          if (days == "Once") id(alarm_on).turn_off();
 
   - id: send_alarm_event
     then:
@@ -1238,21 +1434,54 @@ select:
     id: logger_select
     name: Logger Level
     disabled_by_default: true
+  # Alarm clock: which days it rings (checked by check_alarm). "Once" rings
+  # at the next occurrence of "Alarm time", then turns "Alarm" off.
   - platform: template
+    id: alarm_days
+    name: "Alarm days"
+    icon: mdi:calendar-week
+    entity_category: config
     optimistic: true
-    name: "Alarm action"
-    id: alarm_action
-    icon: mdi:bell-plus
-    internal: true              # daily-alarm feature, hidden from HA
+    restore_value: true
+    options:
+      - "Every day"
+      - "Weekdays"
+      - "Weekends"
+      - "Once"
+    initial_option: "Every day"
+  # What a finished voice timer does: ring on the device, fire the
+  # esphome.timer_finished event in HA (data: name) so an automation can ring
+  # on another speaker, or both. "External speaker" fires the event and rings
+  # here silently, so the wake word still stops it (see start_ring).
+  - platform: template
+    id: timer_action
+    name: "Timer action"
+    icon: mdi:timer-alert
+    entity_category: config
+    optimistic: true
+    restore_value: true
     options:
       - "Play sound"
       - "Send event"
       - "Sound and event"
+      - "External speaker"
     initial_option: "Play sound"
-    on_value:
-      then:
-        - lambda: |-
-            id(saved_alarm_action) = x;
+  # What the alarm does: ring on the device, fire the esphome.alarm_ringing
+  # event in HA (for automations: lights, blinds, ...), or both. "External
+  # speaker" works as for the timer action.
+  - platform: template
+    id: alarm_action
+    name: "Alarm action"
+    icon: mdi:bell-plus
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    options:
+      - "Play sound"
+      - "Send event"
+      - "Sound and event"
+      - "External speaker"
+    initial_option: "Play sound"
 
 switch:
   - platform: template
@@ -1317,9 +1546,11 @@ switch:
       - lambda: id(mic_is_muted) = true;
       - microphone.mute: i2s_mics
       - script.execute: flash_ring
+      - script.execute: mute_reminder
     turn_off_action:
       - lambda: id(mic_is_muted) = false;
       - microphone.unmute: i2s_mics
+      - script.stop: mute_reminder
       - script.execute: flash_ring
 
   - platform: template
@@ -1365,41 +1596,72 @@ switch:
     on_turn_on: *repaint_if_ready
     on_turn_off: *repaint_if_ready
 
+  # Replies on another speaker. On: the device's own speaker stays silent
+  # during Assist replies (and announcements HA sends here), while an HA
+  # automation on the esphome.tts_uri event plays them on any media player.
+  # The wake beep, timers and the alarm still sound here. See the README.
+  - platform: template
+    id: external_replies
+    name: Replies on external speaker
+    icon: "mdi:speaker-wireless"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  # On while a timer or the alarm rings here. Exposed so HA can see it (e.g.
+  # to repeat a sound on another speaker for as long as it is on) and stop it
+  # (turn it off). Turning it on from HA rings by hand, handy to try the Ring
+  # volume. Off at boot: a ring never survives a reboot.
   - platform: template
     id: timer_ringing
+    name: "Ringing"
+    icon: "mdi:bell-ring"
     optimistic: true
-    internal: true
     restore_mode: ALWAYS_OFF
     on_turn_on:
       - mixer_speaker.apply_ducking:
           id: media_mixing_input
           decibel_reduction: 20
           duration: 0.0s
-      - script.execute: ring_timer
-      - script.execute: control_leds
-      - delay: 15min           # give up if nobody stops it
-      - switch.turn_off: timer_ringing
-    on_turn_off:
-      - script.execute: disable_repeat
+      - script.execute: apply_speaker_output
+      # A silent ring (see start_ring) plays nothing here.
       - if:
           condition:
-            media_player.is_announcing:
+            lambda: return !id(ring_silent);
+          then:
+            - script.execute: ring_timer
+      - script.execute: control_leds
+      - script.execute: ring_timeout   # gives up after 15 min
+    on_turn_off:
+      - script.stop: ring_timeout
+      - script.execute: disable_repeat
+      # Stop the ring sound; a silent ring has none, so leave any other
+      # announcement playing.
+      - if:
+          condition:
+            and:
+              - lambda: return !id(ring_silent);
+              - media_player.is_announcing:
           then:
             media_player.stop:
               announcement: true
+      - lambda: id(ring_silent) = false;
+      - script.execute: apply_speaker_output
       - mixer_speaker.apply_ducking:
           id: media_mixing_input
           decibel_reduction: 0
           duration: 1.0s
       - script.execute: control_leds
 
+  # Alarm clock on/off. The time is "Alarm time", the days "Alarm days". It
+  # rings like a timer (Ring volume, purple ring) and is silenced the same way:
+  # the wake word, Play/Pause, or on its own after 15 minutes.
   - platform: template
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: alarm_on
-    icon: mdi:bell-badge
-    name: "Alarm on"
-    internal: true              # daily-alarm feature, hidden from HA
+    icon: mdi:alarm
+    name: "Alarm"
     on_turn_on:
       - script.execute: control_leds
     on_turn_off:
@@ -1491,6 +1753,31 @@ number:
     mode: slider
     on_value: *repaint_if_ready
 
+  # Volume of a ringing timer or alarm, on the same 0-100 % scale as the media
+  # player (so it is also held inside volume_min..volume_max). Applied by
+  # apply_speaker_output for as long as the ring lasts, even if the player is
+  # muted or turned down.
+  - platform: template
+    id: ring_volume
+    name: "Ring volume"
+    icon: mdi:alarm-bell
+    entity_category: config
+    unit_of_measurement: "%"
+    optimistic: true
+    restore_value: true
+    min_value: 10
+    max_value: 100
+    step: 5
+    initial_value: 80
+    mode: slider
+    on_value:
+      # Moving the slider while it rings is heard straight away.
+      - if:
+          condition:
+            switch.is_on: timer_ringing
+          then:
+            - script.execute: apply_speaker_output
+
 sensor:
   - platform: template
     id: next_timer
@@ -1501,21 +1788,55 @@ sensor:
     icon: "mdi:timer"
     accuracy_decimals: 0
 
+  # Diagnostics (shown under "Diagnostic" on the device page).
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+  - platform: debug
+    free:
+      name: "Free Heap"
+      entity_category: diagnostic
+    psram:
+      name: "Free PSRAM"
+      entity_category: diagnostic
+
 text_sensor:
   - platform: template
     id: next_timer_name
     name: "Next timer name"
     icon: "mdi:timer"
-  - platform: template
-    name: "Alarm time"
-    id: alarm_time
-    icon: mdi:bell-ring
-    internal: true              # daily-alarm feature, hidden from HA
   # Published for the alarm/clock logic, but not shown in HA (it's just the
   # device's own clock, which HA already has).
   - platform: template
     id: current_time
     internal: true
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic
+  - platform: version
+    name: "ESPHome Version"
+    hide_timestamp: true
+    entity_category: diagnostic
+
+# Alarm clock time, shown in HA as a time picker. Local time (the device's
+# time zone), 24 h. See the "Alarm" switch.
+datetime:
+  - platform: template
+    id: alarm_clock_time
+    name: "Alarm time"
+    icon: mdi:alarm
+    type: time
+    optimistic: true
+    restore_value: true
+    initial_value: "07:00:00"
 
 button:
   - platform: factory_reset
