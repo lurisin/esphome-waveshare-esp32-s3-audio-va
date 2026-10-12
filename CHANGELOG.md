@@ -11,7 +11,7 @@
   pasta", "quali timer ci sono"), all matched locally.
 - `scripts/test_sentences.py` checks custom sentences offline with Home
   Assistant's own matching rules, against `homeassistant/tests/it/timers.txt`
-  (166 phrases, including ones that must be left to the built-in sentences
+  (175 phrases, including ones that must be left to the built-in sentences
   or the LLM).
 
 ## [1.3.0] - 2026-10-12

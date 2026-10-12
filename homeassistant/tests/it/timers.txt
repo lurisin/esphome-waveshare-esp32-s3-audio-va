@@ -81,6 +81,14 @@ timer per il bucato di un'ora e mezza => HassStartTimer name=bucato hours=1 minu
 spegni la luce cucina tra 5 minuti => HassStartTimer minutes=5
 cancella il timer => HassCancelTimer
 
+5 secondi. => HassStartTimer seconds=5
+5 secondi => HassStartTimer seconds=5
+10 minuti => HassStartTimer minutes=10
+per 10 minuti => HassStartTimer minutes=10
+mezz'ora => HassStartTimer minutes=30
+un'ora e mezza => HassStartTimer hours=1 minutes=30
+5 minuti timer => HassStartTimer minutes=5
+
 # --- names ---
 timer pizza 10 minuti => HassStartTimer name=pizza minutes=10
 timer torta 40 minuti => HassStartTimer name=torta minutes=40
@@ -176,3 +184,5 @@ fai partire la lavatrice => none
 metti la musica => none
 conta fino a 10 => none
 come va => none
+tra 10 minuti => none
+dopo 5 minuti => none

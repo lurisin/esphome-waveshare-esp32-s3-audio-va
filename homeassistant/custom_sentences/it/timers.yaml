@@ -95,9 +95,12 @@ intents:
           - "<tm_verbo> <tm_durata> [<tm_nome_post>]"
           # "avvisami tra 10 minuti", "ricordami tra 10 minuti di girare la pasta"
           - "<tm_avvisa> [tra|fra|dopo|in] <tm_durata> [<tm_nome_post>]"
-          # "5 minuti di timer", "8 minuti per la pasta"
-          - "<tm_durata> (di|col|con il|con) timer"
+          # "5 minuti di timer", "5 minuti timer", "8 minuti per la pasta"
+          - "<tm_durata> [(di|col|con il|con) ]timer"
           - "<tm_durata> <tm_nome_post>"
+          # Just a duration ("5 secondi", "per 10 minuti"): speech-to-text
+          # often drops a short "timer" at the start of the phrase.
+          - "[per ]<tm_durata>"
         response: default
 
   HassTimerStatus:
